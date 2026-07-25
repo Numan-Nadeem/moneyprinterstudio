@@ -265,28 +265,60 @@ function SceneCard({
 }
 
 /**
+ * Strips common markdown symbols from plain-text output so pipeline cards
+ * don't display raw `##`, `**`, `---`, `*` etc.
+ */
+function stripMarkdown(text: string): string {
+  return text
+    // Remove heading markers (# ## ###)
+    .replace(/^#{1,6}\s+/gm, "")
+    // Remove bold/italic (**text**, *text*, __text__, _text_)
+    .replace(/(\*{1,3}|_{1,3})(.*?)\1/g, "$2")
+    // Remove horizontal rules
+    .replace(/^[-*_]{3,}\s*$/gm, "")
+    // Remove blockquote markers
+    .replace(/^>\s?/gm, "")
+    // Collapse 3+ blank lines into 2
+    .replace(/\n{3,}/g, "\n\n")
+    .trim()
+}
+
+/**
  * Splits a multi-scene text block on scene headings so each scene gets its
- * own card with a dedicated copy button — much easier to paste per-scene.
+ * own card with a dedicated copy button.
+ * Handles any heading format: "Scene 1", "## Scene 1 — HOOK", "SCENE 1:", etc.
  * Falls back to a single block when no scene structure is detected.
  */
 function splitIntoScenes(text: string): { label: string; body: string }[] {
-  // Match lines like "Scene 1", "SCENE 1 —", "## Scene 1 — Title", etc.
-  const sceneRegex = /^(?:#{1,3}\s*)?(?:scene|SCENE)\s+(\d+)[^\n]*/m
-  const parts = text.split(/(?=(?:^|\n)(?:#{1,3}\s*)?(?:scene|SCENE)\s+\d+)/im)
-  const scenes: { label: string; body: string }[] = []
-  for (const part of parts) {
-    const trimmed = part.trim()
-    if (!trimmed) continue
-    const match = sceneRegex.exec(trimmed)
-    if (match) {
-      const firstLine = trimmed.split("\n")[0].replace(/^#{1,3}\s*/, "").trim()
-      scenes.push({ label: firstLine, body: trimmed })
-    } else if (scenes.length === 0) {
-      // preamble before first scene heading
-      scenes.push({ label: "Output", body: trimmed })
+  // Split the text on every line that starts a new scene heading.
+  // We use a simple line-by-line approach instead of regex lookahead so it
+  // works reliably across any LLM output format.
+  const lines = text.split("\n")
+  const sceneHeadingRe = /^(?:#{1,6}\s*)?(?:scene|szene|escena|scène)\s+\d+/i
+
+  const chunks: { label: string; lines: string[] }[] = []
+
+  for (const line of lines) {
+    const clean = line.replace(/^#{1,6}\s*/, "").trim()
+    if (sceneHeadingRe.test(line.trim())) {
+      // Remove trailing markdown decorators like " ---" or " —--"
+      const label = clean.replace(/\s*[-—]{2,}.*$/, "").trim()
+      chunks.push({ label, lines: [line] })
+    } else if (chunks.length > 0) {
+      chunks[chunks.length - 1].lines.push(line)
     }
+    // lines before the first scene heading are silently dropped
   }
-  return scenes.length > 1 ? scenes : [{ label: "Output", body: text.trim() }]
+
+  if (chunks.length <= 1) {
+    // No scene structure detected — return as a single block
+    return [{ label: "Output", body: stripMarkdown(text) }]
+  }
+
+  return chunks.map((c) => ({
+    label: c.label,
+    body: stripMarkdown(c.lines.join("\n")),
+  }))
 }
 
 function PerSceneOutputBlock({
@@ -314,7 +346,8 @@ function PerSceneOutputBlock({
             variant="outline"
             size="sm"
             onClick={async () => {
-              await navigator.clipboard.writeText(content)
+              const allScenes = splitIntoScenes(content).map((s) => `${s.label}\n\n${s.body}`).join("\n\n---\n\n")
+              await navigator.clipboard.writeText(allScenes)
               setCopiedAll(true)
               setTimeout(() => setCopiedAll(false), 1500)
             }}
@@ -322,7 +355,7 @@ function PerSceneOutputBlock({
             <CopyIcon className="size-3.5" weight="bold" aria-hidden />
             {copiedAll ? "Copied all" : "Copy all"}
           </Button>
-          <Button variant="outline" size="sm" onClick={() => downloadText(content, filename)}>
+          <Button variant="outline" size="sm" onClick={() => downloadText(splitIntoScenes(content).map((s) => `${s.label}\n\n${s.body}`).join("\n\n---\n\n"), filename)}>
             <DownloadSimpleIcon className="size-3.5" weight="bold" aria-hidden />
             Download
           </Button>
@@ -395,7 +428,7 @@ function OutputBlock({
             variant="outline"
             size="sm"
             onClick={async () => {
-              await navigator.clipboard.writeText(content)
+              await navigator.clipboard.writeText(stripMarkdown(content))
               setCopied(true)
               setTimeout(() => setCopied(false), 1500)
             }}
@@ -403,14 +436,14 @@ function OutputBlock({
             <CopyIcon className="size-3.5" weight="bold" aria-hidden />
             {copied ? "Copied" : "Copy"}
           </Button>
-          <Button variant="outline" size="sm" onClick={() => downloadText(content, filename)}>
+          <Button variant="outline" size="sm" onClick={() => downloadText(stripMarkdown(content), filename)}>
             <DownloadSimpleIcon className="size-3.5" weight="bold" aria-hidden />
             Download
           </Button>
         </div>
       </div>
       <pre className="max-h-96 overflow-y-auto rounded-lg border border-border bg-card px-5 py-4 font-mono text-xs leading-relaxed whitespace-pre-wrap">
-        {content}
+        {stripMarkdown(content)}
       </pre>
       {loadingNext && (
         <p className="flex items-center gap-2 text-xs text-muted-foreground" role="status">
