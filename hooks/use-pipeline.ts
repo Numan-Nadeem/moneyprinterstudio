@@ -1,9 +1,11 @@
 "use client"
 
-import { useCallback, useRef, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { parseScenes, type ParsedScene } from "@/lib/pipeline/parse-scenes"
 import { useStudioSettings } from "@/hooks/use-studio-settings"
 import { useImageLibrary } from "@/hooks/use-image-library"
+import { getImage } from "@/lib/store/image-db"
+import { PIPELINE_KEY, loadJson, removeJson, saveJson } from "@/lib/store/chat-store"
 import { DEFAULT_IMAGE_MODELS, toWireProvider, type ProviderConfig } from "@/lib/store/types"
 
 export type PipelineStage =
@@ -22,6 +24,8 @@ export type SceneStatus = "pending" | "generating" | "done" | "error"
 export interface PipelineScene extends ParsedScene {
   status: SceneStatus
   image?: string
+  /** id of the generated image in the IndexedDB gallery (for rehydration) */
+  imageId?: string
   error?: string
 }
 
@@ -107,17 +111,65 @@ export function usePipeline() {
   const stateRef = useRef<PipelineState>(INITIAL)
   const cancelled = useRef(false)
 
-  /** Keeps a synchronous mirror of state for async orchestration loops */
+  /** Keeps a synchronous mirror of state for async orchestration loops,
+   * and writes through to localStorage (scenes persisted without data URLs). */
   const setState = useCallback((update: PipelineState | ((s: PipelineState) => PipelineState)) => {
     const next = typeof update === "function" ? update(stateRef.current) : update
     stateRef.current = next
     _setState(next)
+    if (next.stage === "idle") {
+      removeJson(PIPELINE_KEY)
+    } else {
+      saveJson(PIPELINE_KEY, {
+        ...next,
+        scenes: next.scenes.map(({ image: _image, ...rest }) => rest),
+      })
+    }
   }, [])
+
+  // Restore a persisted pipeline when returning to this tab
+  useEffect(() => {
+    let active = true
+    async function restore() {
+      if (stateRef.current.stage !== "idle") return
+      const saved = loadJson<PipelineState>(PIPELINE_KEY)
+      if (!saved || saved.stage === "idle") return
+
+      const scenes = await Promise.all(
+        saved.scenes.map(async (scene): Promise<PipelineScene> => {
+          if (scene.status === "generating") {
+            return { ...scene, status: "pending", image: undefined }
+          }
+          if (scene.status === "done" && scene.imageId) {
+            const stored = await getImage(scene.imageId)
+            return stored
+              ? { ...scene, image: stored.dataUrl }
+              : { ...scene, status: "pending", image: undefined, imageId: undefined }
+          }
+          return scene
+        }),
+      )
+
+      // In-flight stages cannot resume mid-request: pause at a safe stage.
+      let stage: PipelineStage = saved.stage
+      if (stage === "extracting") stage = "idle"
+      if (stage === "generating") stage = "awaiting-confirmation"
+      if (stage === "video-extraction" || stage === "post-processing") stage = "awaiting-confirmation"
+
+      if (active && stage !== "idle") {
+        setState({ ...saved, stage, scenes, cursor: Math.min(saved.cursor, scenes.length) })
+      }
+    }
+    void restore()
+    return () => {
+      active = false
+    }
+  }, [setState])
 
   const reset = useCallback(() => {
     cancelled.current = true
     setState(INITIAL)
-  }, [])
+  }, [setState])
 
   /** Stage 1: run the Image Prompt Extractor over the storyboard */
   const start = useCallback(
@@ -189,8 +241,9 @@ export function usePipeline() {
       const data = (await res.json()) as { image?: string; error?: string }
       if (!res.ok || !data.image) throw new Error(data.error || "Image generation failed")
 
+      const imageId = crypto.randomUUID()
       await add({
-        id: crypto.randomUUID(),
+        id: imageId,
         dataUrl: data.image,
         prompt,
         sceneIndex: scene.index,
@@ -198,7 +251,7 @@ export function usePipeline() {
         model: provider.model,
         createdAt: Date.now(),
       })
-      return data.image
+      return { image: data.image, imageId }
     },
     [settings, add],
   )
@@ -219,9 +272,11 @@ export function usePipeline() {
           scenes: s.scenes.map((sc, j) => (j === i ? { ...sc, status: "generating" } : sc)),
         }))
         try {
-          const image = await generateScene(i, scenes)
-          if (cancelled.current || !image) return
-          scenes = scenes.map((sc, j) => (j === i ? { ...sc, status: "done" as const, image } : sc))
+          const result = await generateScene(i, scenes)
+          if (cancelled.current || !result) return
+          scenes = scenes.map((sc, j) =>
+            j === i ? { ...sc, status: "done" as const, image: result.image, imageId: result.imageId } : sc,
+          )
           setState((s) => ({ ...s, scenes }))
         } catch (error) {
           const message = error instanceof Error ? error.message : "Image generation failed"

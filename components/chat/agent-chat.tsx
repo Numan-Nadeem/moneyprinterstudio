@@ -3,7 +3,8 @@
 import { useEffect, useRef, useState } from "react"
 import Link from "next/link"
 import { useChat } from "@ai-sdk/react"
-import { DefaultChatTransport } from "ai"
+import { DefaultChatTransport, type UIMessage } from "ai"
+import { chatKey, loadJson, saveJson } from "@/lib/store/chat-store"
 import { Streamdown } from "streamdown"
 import {
   ArrowUpIcon,
@@ -46,12 +47,26 @@ export function AgentChat({ agent }: { agent: AgentDefinition }) {
   const [input, setInput] = useState("")
   const bottomRef = useRef<HTMLDivElement>(null)
 
-  const { messages, sendMessage, status, stop, error } = useChat({
+  const { messages, sendMessage, setMessages, status, stop, error } = useChat({
     id: `agent-${agent.id}`,
     transport: new DefaultChatTransport({ api: "/api/chat" }),
   })
 
   const busy = status === "submitted" || status === "streaming"
+  const restored = useRef(false)
+
+  // Restore the conversation when returning to this tab
+  useEffect(() => {
+    const saved = loadJson<UIMessage[]>(chatKey(agent.id))
+    if (saved?.length) setMessages(saved)
+    restored.current = true
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [agent.id])
+
+  // Persist after every settled update (skip mid-stream churn)
+  useEffect(() => {
+    if (restored.current && !busy) saveJson(chatKey(agent.id), messages)
+  }, [messages, busy, agent.id])
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" })
