@@ -12,7 +12,7 @@ import {
   TextAlignLeftIcon,
   ImageSquareIcon,
   VideoCameraIcon,
-  SlidersIcon,
+  TagIcon,
   ListIcon,
   XIcon,
 } from "@phosphor-icons/react"
@@ -25,7 +25,7 @@ const AGENT_ICONS: Record<string, React.ComponentType<{ className?: string; weig
   "image-prompt-extractor": TextAlignLeftIcon,
   "image-generator": ImageSquareIcon,
   "video-prompt-extractor": VideoCameraIcon,
-  "post-processing": SlidersIcon,
+  "post-processing": TagIcon,
 }
 
 const WORKSPACE_LINKS = [

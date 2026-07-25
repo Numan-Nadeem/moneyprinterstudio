@@ -56,12 +56,12 @@ export const AGENTS: readonly AgentDefinition[] = [
   },
   {
     id: "post-processing",
-    name: "Post Processing + Video Details",
-    shortName: "Post Processing",
+    name: "Video Metadata",
+    shortName: "Video Metadata",
     description:
-      "Strict extractor: returns per-scene Video Generation Prompt, Dialogue, Sound Design, Camera, and Transition with zero inference, preserving original wording exactly.",
+      "Generates a complete SEO package for the video: primary title, alternative titles, description, hashtags, tags, filename, category, language, audience, and upload time.",
     type: "text",
-    promptFile: "Storyboard_Video_Prompt_Extractor_Master_Prompt.md",
+    promptFile: "SEO_Metadata_Generator_Master_Prompt.md",
     openingLine: "Please paste your complete storyboard.",
   },
 ] as const
