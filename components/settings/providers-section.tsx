@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { PlusIcon, TrashIcon, CheckCircleIcon } from "@phosphor-icons/react"
+import { PlusIcon, TrashIcon, CheckCircleIcon, ArrowsClockwiseIcon } from "@phosphor-icons/react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -32,6 +32,8 @@ interface HeaderRow {
 export function ProvidersSection() {
   const { settings, update } = useStudioSettings()
   const [adding, setAdding] = useState(false)
+  const [syncingId, setSyncingId] = useState<string | null>(null)
+  const [syncError, setSyncError] = useState<string | null>(null)
   const [kind, setKind] = useState<ProviderKind>("gateway")
   const [label, setLabel] = useState("")
   const [apiKey, setApiKey] = useState("")
@@ -148,6 +150,55 @@ export function ProvidersSection() {
     }))
   }
 
+  /**
+   * Fetches the real model list from the provider's /models endpoint and
+   * replaces the manually entered list. If the currently active model is not
+   * actually served by the provider, it is swapped to the first real model —
+   * this prevents the proxy from silently aliasing unknown model IDs to
+   * channels that have no credentials (e.g. auth_not_found errors).
+   */
+  async function syncModels(id: string) {
+    const p = settings.providers.find((x) => x.id === id)
+    if (!p || p.kind !== "custom" || !p.baseUrl) return
+    setSyncingId(id)
+    setSyncError(null)
+    try {
+      const res = await fetch("/api/provider-models", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ baseUrl: p.baseUrl, apiKey: p.apiKey, headers: p.headers }),
+      })
+      const data = (await res.json()) as { models?: string[]; error?: string }
+      if (!res.ok || !data.models?.length) {
+        setSyncError(data.error || "Could not fetch models from the provider.")
+        return
+      }
+      const fetched = data.models.map((m) => ({ id: m, label: m }))
+      const activeStillValid = data.models.includes(p.model)
+      const nextModel = activeStillValid ? p.model : fetched[0].id
+      update((s) => ({
+        ...s,
+        providers: s.providers.map((x) =>
+          x.id === id ? { ...x, models: fetched, model: nextModel } : x,
+        ),
+        // Clear per-agent overrides that reference models the provider
+        // does not actually serve.
+        agentSettings: Object.fromEntries(
+          Object.entries(s.agentSettings).map(([agentId, as]) => [
+            agentId,
+            as.providerId === id && as.model && !data.models!.includes(as.model)
+              ? { ...as, model: null }
+              : as,
+          ]),
+        ),
+      }))
+    } catch {
+      setSyncError("Could not reach the provider. Check the base URL.")
+    } finally {
+      setSyncingId(null)
+    }
+  }
+
   const customValid =
     !isCustom ||
     (Boolean(providerId.trim()) &&
@@ -180,6 +231,12 @@ export function ProvidersSection() {
             No providers yet. Add one to start chatting with the agents.
           </p>
         </div>
+      )}
+
+      {syncError && (
+        <p role="alert" className="rounded-md bg-pastel-red px-4 py-3 text-sm text-pastel-red-foreground">
+          {syncError}
+        </p>
       )}
 
       {settings.providers.length > 0 && (
@@ -221,6 +278,21 @@ export function ProvidersSection() {
                       ))}
                     </SelectContent>
                   </Select>
+                )}
+                {p.kind === "custom" && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    disabled={syncingId === p.id}
+                    onClick={() => syncModels(p.id)}
+                  >
+                    <ArrowsClockwiseIcon
+                      className={syncingId === p.id ? "size-4 animate-spin" : "size-4"}
+                      weight="bold"
+                      aria-hidden
+                    />
+                    {syncingId === p.id ? "Syncing…" : "Sync models"}
+                  </Button>
                 )}
                 {!isDefault && (
                   <Button variant="ghost" size="sm" onClick={() => setDefault(p.id)}>
