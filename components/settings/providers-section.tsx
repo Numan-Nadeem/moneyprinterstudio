@@ -1,7 +1,15 @@
 "use client"
 
 import { useState } from "react"
-import { PlusIcon, TrashIcon, CheckCircleIcon, ArrowsClockwiseIcon } from "@phosphor-icons/react"
+import {
+  PlusIcon,
+  TrashIcon,
+  CheckCircleIcon,
+  ArrowsClockwiseIcon,
+  StethoscopeIcon,
+  XCircleIcon,
+} from "@phosphor-icons/react"
+import type { ProbeResult } from "@/app/api/provider-probe/route"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -34,6 +42,8 @@ export function ProvidersSection() {
   const [adding, setAdding] = useState(false)
   const [syncingId, setSyncingId] = useState<string | null>(null)
   const [syncError, setSyncError] = useState<string | null>(null)
+  const [probingId, setProbingId] = useState<string | null>(null)
+  const [probeResults, setProbeResults] = useState<Record<string, ProbeResult[]>>({})
   const [kind, setKind] = useState<ProviderKind>("gateway")
   const [label, setLabel] = useState("")
   const [apiKey, setApiKey] = useState("")
@@ -199,6 +209,37 @@ export function ProvidersSection() {
     }
   }
 
+  /**
+   * Sends a minimal real completion for every configured model so the user can
+   * see which IDs the gateway can actually serve with this key, and which ones
+   * get rerouted to a channel that has no upstream credentials.
+   */
+  async function probeProvider(id: string) {
+    const p = settings.providers.find((x) => x.id === id)
+    if (!p || p.kind !== "custom" || !p.baseUrl) return
+    const list = (p.models?.map((m) => m.id) ?? []).filter(Boolean)
+    const models = list.length > 0 ? list : [p.model]
+    setProbingId(id)
+    setSyncError(null)
+    try {
+      const res = await fetch("/api/provider-probe", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ baseUrl: p.baseUrl, apiKey: p.apiKey, headers: p.headers, models }),
+      })
+      const data = (await res.json()) as { results?: ProbeResult[]; error?: string }
+      if (!res.ok || !data.results) {
+        setSyncError(data.error || "Could not test the provider.")
+        return
+      }
+      setProbeResults((prev) => ({ ...prev, [id]: data.results! }))
+    } catch {
+      setSyncError("Could not reach the provider. Check the base URL.")
+    } finally {
+      setProbingId(null)
+    }
+  }
+
   const customValid =
     !isCustom ||
     (Boolean(providerId.trim()) &&
@@ -244,7 +285,8 @@ export function ProvidersSection() {
           {settings.providers.map((p) => {
             const isDefault = settings.defaultProviderId === p.id
             return (
-              <li key={p.id} className="flex items-center gap-4 px-5 py-4">
+              <li key={p.id} className="flex flex-col gap-3 px-5 py-4">
+                <div className="flex items-center gap-4">
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
                     <span className="truncate text-sm font-medium text-foreground">{p.label}</span>
@@ -294,6 +336,21 @@ export function ProvidersSection() {
                     {syncingId === p.id ? "Syncing…" : "Sync models"}
                   </Button>
                 )}
+                {p.kind === "custom" && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    disabled={probingId === p.id}
+                    onClick={() => probeProvider(p.id)}
+                  >
+                    <StethoscopeIcon
+                      className={probingId === p.id ? "size-4 animate-pulse" : "size-4"}
+                      weight="bold"
+                      aria-hidden
+                    />
+                    {probingId === p.id ? "Testing…" : "Test models"}
+                  </Button>
+                )}
                 {!isDefault && (
                   <Button variant="ghost" size="sm" onClick={() => setDefault(p.id)}>
                     Make default
@@ -307,6 +364,66 @@ export function ProvidersSection() {
                 >
                   <TrashIcon className="size-4" weight="bold" aria-hidden />
                 </Button>
+                </div>
+
+                {probeResults[p.id] && (
+                  <div className="rounded-md border border-border bg-muted/40 p-3">
+                    <p className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                      Live test results
+                    </p>
+                    <ul className="flex flex-col gap-2">
+                      {probeResults[p.id].map((r) => (
+                        <li key={r.model} className="flex items-start gap-2 text-xs">
+                          {r.ok ? (
+                            <CheckCircleIcon
+                              className="mt-0.5 size-4 shrink-0 text-pastel-green-foreground"
+                              weight="fill"
+                              aria-hidden
+                            />
+                          ) : (
+                            <XCircleIcon
+                              className="mt-0.5 size-4 shrink-0 text-pastel-red-foreground"
+                              weight="fill"
+                              aria-hidden
+                            />
+                          )}
+                          <div className="min-w-0 flex-1">
+                            <span className="font-mono text-foreground">{r.model}</span>
+                            {r.ok ? (
+                              <span className="ml-2 text-muted-foreground">
+                                works · {r.format} format
+                              </span>
+                            ) : (
+                              <span className="ml-2 break-words text-muted-foreground">
+                                {r.error}
+                                {r.rerouted
+                                  ? " — the gateway rerouted this ID to a channel with no credentials"
+                                  : ""}
+                              </span>
+                            )}
+                          </div>
+                          {r.ok && p.model !== r.model && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-6 shrink-0 px-2 text-xs"
+                              onClick={() => setProviderModel(p.id, r.model)}
+                            >
+                              Use
+                            </Button>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                    {probeResults[p.id].every((r) => !r.ok) && (
+                      <p className="mt-3 leading-relaxed text-xs text-muted-foreground">
+                        None of these model IDs can be served with this key. The IDs must match
+                        what your gateway exposes — check the model list on your provider
+                        dashboard and add a working ID.
+                      </p>
+                    )}
+                  </div>
+                )}
               </li>
             )
           })}
