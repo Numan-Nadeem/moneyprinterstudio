@@ -51,7 +51,10 @@ export function resolveLanguageModel(config: WireProviderConfig): LanguageModel 
     case "google":
       return createGoogleGenerativeAI({ apiKey })(model)
     case "custom":
-      return createCustomOpenAICompatible(config)(model)
+      // Use Chat Completions (/v1/chat/completions) explicitly. The default
+      // factory targets the OpenAI Responses API (/v1/responses), which most
+      // OpenAI-compatible proxies do not support or route incorrectly.
+      return createCustomOpenAICompatible(config).chat(model)
     default:
       throw new Error(`Unsupported provider kind: ${kind satisfies never}`)
   }
