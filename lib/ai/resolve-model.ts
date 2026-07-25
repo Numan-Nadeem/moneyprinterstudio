@@ -36,6 +36,21 @@ export function createCustomOpenAICompatible(config: WireProviderConfig) {
 }
 
 /**
+ * Resolves a provider config into an ordered list of language model
+ * candidates. For custom OpenAI-compatible proxies, different models may be
+ * served through different endpoint formats — some only via Chat Completions
+ * (/v1/chat/completions), others only via the Responses API (/v1/responses).
+ * Callers should try each candidate in order and fall back on API errors.
+ */
+export function resolveLanguageModelCandidates(config: WireProviderConfig): LanguageModel[] {
+  if (config.kind === "custom") {
+    const factory = createCustomOpenAICompatible(config)
+    return [factory.chat(config.model), factory.responses(config.model)]
+  }
+  return [resolveLanguageModel(config)]
+}
+
+/**
  * Resolves a BYOK provider config (sent per-request, never stored server-side)
  * into an AI SDK language model instance.
  */
