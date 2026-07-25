@@ -2,11 +2,11 @@ import { generateImage, generateText, type ModelMessage } from "ai"
 import { z } from "zod"
 import { buildSystemPrompt } from "@/lib/agents/prompts"
 import {
-  createCustomOpenAICompatible,
   resolveLanguageModel,
   wireProviderSchema,
   type WireProviderConfig,
 } from "@/lib/ai/resolve-model"
+import { generateCustomProviderImage } from "@/lib/ai/custom-image"
 import { createGateway } from "ai"
 import { createOpenAI } from "@ai-sdk/openai"
 import { createGoogleGenerativeAI } from "@ai-sdk/google"
@@ -36,8 +36,6 @@ function resolveImageModel(config: WireProviderConfig) {
       return createOpenAI({ apiKey }).imageModel(model)
     case "google":
       return createGoogleGenerativeAI({ apiKey }).imageModel(model)
-    case "custom":
-      return createCustomOpenAICompatible(config).imageModel(model)
     default:
       throw new Error("This provider does not support image models")
   }
@@ -51,6 +49,24 @@ export async function POST(req: Request) {
   const { prompt, provider, instructions, referenceImages = [] } = parsed.data
 
   try {
+    if (provider.kind === "custom") {
+      // Custom OpenAI-compatible proxies: call the proper endpoint format
+      // directly (chat completions for multimodal models, Images API for
+      // pure image models) with automatic fallback between the two.
+      const system = await buildSystemPrompt("image-generator", instructions)
+      const result = await generateCustomProviderImage(provider, system, prompt, referenceImages)
+      if (!result.image) {
+        return Response.json(
+          {
+            error: "The model did not return an image. Use an image-capable model on this provider.",
+            text: result.text,
+          },
+          { status: 422 },
+        )
+      }
+      return Response.json({ image: result.image, text: result.text })
+    }
+
     if (isPureImageModel(provider.model)) {
       // Pure image model: no system prompt support; send the scene prompt directly.
       const { image } = await generateImage({
