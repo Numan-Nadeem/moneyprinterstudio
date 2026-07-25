@@ -34,7 +34,7 @@ function downloadDataUrl(dataUrl: string, filename: string) {
 }
 
 export function ImageChat({ agent }: { agent: AgentDefinition }) {
-  const { provider, instructions } = useAgentProvider(agent.id)
+  const { provider, instructions } = useAgentProvider(agent.id, { image: true })
   const { settings } = useStudioSettings()
   const { add } = useImageLibrary()
   const [turns, setTurns] = useState<Turn[]>([])

@@ -2,6 +2,7 @@ import { notFound } from "next/navigation"
 import { getAgent, AGENTS } from "@/lib/agents/registry"
 import { Badge } from "@/components/ui/badge"
 import { AgentChat } from "@/components/chat/agent-chat"
+import { ImageChat } from "@/components/chat/image-chat"
 
 export function generateStaticParams() {
   return AGENTS.map((agent) => ({ agentId: agent.id }))
@@ -33,7 +34,7 @@ export default async function AgentPage({
         </div>
       </header>
       <div className="min-h-0 flex-1">
-        <AgentChat agent={agent} />
+        {agent.type === "image" ? <ImageChat agent={agent} /> : <AgentChat agent={agent} />}
       </div>
     </div>
   )
