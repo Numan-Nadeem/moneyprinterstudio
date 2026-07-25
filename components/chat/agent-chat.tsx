@@ -3,8 +3,8 @@
 import { useEffect, useRef, useState } from "react"
 import Link from "next/link"
 import { useChat } from "@ai-sdk/react"
-import { DefaultChatTransport, type UIMessage } from "ai"
-import { chatKey, loadJson, saveJson } from "@/lib/store/chat-store"
+import { chatKey, saveJson } from "@/lib/store/chat-store"
+import { getAgentChat } from "@/lib/store/chat-registry"
 import { Streamdown } from "streamdown"
 import {
   ArrowUpIcon,
@@ -47,25 +47,19 @@ export function AgentChat({ agent }: { agent: AgentDefinition }) {
   const [input, setInput] = useState("")
   const bottomRef = useRef<HTMLDivElement>(null)
 
-  const { messages, sendMessage, setMessages, status, stop, error } = useChat({
-    id: `agent-${agent.id}`,
-    transport: new DefaultChatTransport({ api: "/api/chat" }),
+  // Persistent Chat instance: lives at module scope, so navigating to
+  // another tab neither clears the conversation nor aborts an in-flight
+  // streaming response — it keeps generating and is fully restored on return.
+  const { messages, sendMessage, status, stop, error } = useChat({
+    chat: getAgentChat(agent.id),
   })
 
   const busy = status === "submitted" || status === "streaming"
-  const restored = useRef(false)
 
-  // Restore the conversation when returning to this tab
+  // Mirror settled conversations to localStorage (covers stop() and edits;
+  // onFinish in the registry covers completed streams).
   useEffect(() => {
-    const saved = loadJson<UIMessage[]>(chatKey(agent.id))
-    if (saved?.length) setMessages(saved)
-    restored.current = true
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [agent.id])
-
-  // Persist after every settled update (skip mid-stream churn)
-  useEffect(() => {
-    if (restored.current && !busy) saveJson(chatKey(agent.id), messages)
+    if (!busy) saveJson(chatKey(agent.id), messages)
   }, [messages, busy, agent.id])
 
   useEffect(() => {
