@@ -294,15 +294,19 @@ function splitIntoScenes(text: string): { label: string; body: string }[] {
   // We use a simple line-by-line approach instead of regex lookahead so it
   // works reliably across any LLM output format.
   const lines = text.split("\n")
-  const sceneHeadingRe = /^(?:#{1,6}\s*)?(?:scene|szene|escena|scène)\s+\d+/i
+  // Matches any scene heading regardless of emoji prefix, markdown markers, or
+  // separator style: "🎬 SCENE 1 HOOK", "# Scene 2 — Title", "Scene 3:", etc.
+  const sceneHeadingRe = /^[\p{Emoji}\p{Emoji_Component}]*\s*(?:#{1,6}\s*)?(?:\*\*)?\s*(?:scene|szene|escena|scène)\s+\d+/iu
 
   const chunks: { label: string; lines: string[] }[] = []
 
   for (const line of lines) {
-    const clean = line.replace(/^#{1,6}\s*/, "").trim()
+    // Strip leading emoji, markdown heading markers, and bold markers for display
+    const clean = line.replace(/^[\p{Emoji}\p{Emoji_Component}]+\s*/u, "").replace(/^#{1,6}\s*/, "").replace(/^\*\*|\*\*$/g, "").trim()
     if (sceneHeadingRe.test(line.trim())) {
-      // Remove trailing markdown decorators like " ---" or " —--"
-      const label = clean.replace(/\s*[-—]{2,}.*$/, "").trim()
+      // Remove trailing dash-style separators like " — HOOK" → keep "Scene 1 HOOK"
+      // but preserve subtitle words after space (e.g. "Scene 1 HOOK" stays intact)
+      const label = clean.replace(/\s*[—–]{1,}\s*/g, " — ").trim()
       chunks.push({ label, lines: [line] })
     } else if (chunks.length > 0) {
       chunks[chunks.length - 1].lines.push(line)
