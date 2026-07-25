@@ -1,7 +1,12 @@
 import { generateImage, generateText, type ModelMessage } from "ai"
 import { z } from "zod"
 import { buildSystemPrompt } from "@/lib/agents/prompts"
-import { resolveLanguageModel, type WireProviderConfig } from "@/lib/ai/resolve-model"
+import {
+  createCustomOpenAICompatible,
+  resolveLanguageModel,
+  wireProviderSchema,
+  type WireProviderConfig,
+} from "@/lib/ai/resolve-model"
 import { createGateway } from "ai"
 import { createOpenAI } from "@ai-sdk/openai"
 import { createGoogleGenerativeAI } from "@ai-sdk/google"
@@ -10,11 +15,7 @@ export const maxDuration = 300
 
 const bodySchema = z.object({
   prompt: z.string().min(1),
-  provider: z.object({
-    kind: z.enum(["gateway", "openai", "anthropic", "google"]),
-    apiKey: z.string().min(1),
-    model: z.string().min(1),
-  }),
+  provider: wireProviderSchema,
   instructions: z.string().optional(),
   /** Character reference images + previous scene image, as data URLs */
   referenceImages: z.array(z.string()).max(8).optional(),
@@ -35,6 +36,8 @@ function resolveImageModel(config: WireProviderConfig) {
       return createOpenAI({ apiKey }).imageModel(model)
     case "google":
       return createGoogleGenerativeAI({ apiKey }).imageModel(model)
+    case "custom":
+      return createCustomOpenAICompatible(config).imageModel(model)
     default:
       throw new Error("This provider does not support image models")
   }

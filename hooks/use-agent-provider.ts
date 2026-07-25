@@ -28,13 +28,21 @@ export function useAgentProvider(
 
   let provider: ProviderConfig | null = assigned ?? fallback ?? settings.providers[0] ?? null
 
-  if (provider && options?.image) {
+  if (provider && options?.image && provider.kind !== "custom") {
+    // Custom providers keep their user-configured model; built-in kinds swap
+    // to their image-capable default.
     const imageModel = DEFAULT_IMAGE_MODELS[provider.kind]
     if (!imageModel) {
       // Provider kind cannot generate images (e.g. Anthropic): try to find
       // any configured provider that can.
-      const capable = settings.providers.find((p) => DEFAULT_IMAGE_MODELS[p.kind])
-      provider = capable ? { ...capable, model: DEFAULT_IMAGE_MODELS[capable.kind] } : null
+      const capable = settings.providers.find(
+        (p) => p.kind === "custom" || DEFAULT_IMAGE_MODELS[p.kind],
+      )
+      provider = capable
+        ? capable.kind === "custom"
+          ? capable
+          : { ...capable, model: DEFAULT_IMAGE_MODELS[capable.kind] }
+        : null
     } else {
       provider = { ...provider, model: imageModel }
     }

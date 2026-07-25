@@ -4,7 +4,7 @@ import { useCallback, useRef, useState } from "react"
 import { parseScenes, type ParsedScene } from "@/lib/pipeline/parse-scenes"
 import { useStudioSettings } from "@/hooks/use-studio-settings"
 import { useImageLibrary } from "@/hooks/use-image-library"
-import { DEFAULT_IMAGE_MODELS, type ProviderConfig } from "@/lib/store/types"
+import { DEFAULT_IMAGE_MODELS, toWireProvider, type ProviderConfig } from "@/lib/store/types"
 
 export type PipelineStage =
   | "idle"
@@ -59,11 +59,19 @@ function resolveAgentProvider(
     ? settings.providers.find((p) => p.id === settings.defaultProviderId)
     : undefined
   let provider: ProviderConfig | null = assigned ?? fallback ?? settings.providers[0] ?? null
-  if (provider && image) {
+  if (provider && image && provider.kind !== "custom") {
+    // Custom providers keep their user-configured model; built-in kinds swap
+    // to their image-capable default.
     const imageModel = DEFAULT_IMAGE_MODELS[provider.kind]
     if (!imageModel) {
-      const capable = settings.providers.find((p) => DEFAULT_IMAGE_MODELS[p.kind])
-      provider = capable ? { ...capable, model: DEFAULT_IMAGE_MODELS[capable.kind] } : null
+      const capable = settings.providers.find(
+        (p) => p.kind === "custom" || DEFAULT_IMAGE_MODELS[p.kind],
+      )
+      provider = capable
+        ? capable.kind === "custom"
+          ? capable
+          : { ...capable, model: DEFAULT_IMAGE_MODELS[capable.kind] }
+        : null
     } else {
       provider = { ...provider, model: imageModel }
     }
@@ -83,7 +91,7 @@ async function runAgent(
     body: JSON.stringify({
       agentId,
       input,
-      provider: { kind: provider.kind, apiKey: provider.apiKey, model: provider.model },
+      provider: toWireProvider(provider),
       instructions,
     }),
   })
@@ -173,8 +181,8 @@ export function usePipeline() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           prompt,
-          provider: { kind: provider.kind, apiKey: provider.apiKey, model: provider.model },
-          instructions: settings.agentSettings["image-generator"]?.instructions ?? "",
+        provider: toWireProvider(provider),
+        instructions: settings.agentSettings["image-generator"]?.instructions ?? "",
           referenceImages,
         }),
       })

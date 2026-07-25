@@ -16,6 +16,7 @@ import { useAgentProvider } from "@/hooks/use-agent-provider"
 import { useStudioSettings } from "@/hooks/use-studio-settings"
 import { useImageLibrary } from "@/hooks/use-image-library"
 import type { AgentDefinition } from "@/lib/agents/registry"
+import { toWireProvider } from "@/lib/store/types"
 
 interface Turn {
   id: string
@@ -71,7 +72,7 @@ export function ImageChat({ agent }: { agent: AgentDefinition }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           prompt,
-          provider: { kind: provider.kind, apiKey: provider.apiKey, model: provider.model },
+          provider: toWireProvider(provider),
           instructions,
           referenceImages,
         }),

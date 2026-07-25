@@ -1,4 +1,9 @@
-export type ProviderKind = "gateway" | "openai" | "anthropic" | "google"
+export type ProviderKind = "gateway" | "openai" | "anthropic" | "google" | "custom"
+
+export interface CustomModelEntry {
+  id: string
+  label: string
+}
 
 export interface ProviderConfig {
   id: string
@@ -7,6 +12,11 @@ export interface ProviderConfig {
   apiKey: string
   model: string
   createdAt: number
+  /** Custom (OpenAI-compatible) provider fields */
+  providerId?: string
+  baseUrl?: string
+  headers?: Record<string, string>
+  models?: CustomModelEntry[]
 }
 
 export interface AgentSettings {
@@ -42,11 +52,22 @@ export const EMPTY_SETTINGS: StudioSettings = {
   autoContinue: false,
 }
 
+/** Serializes a provider config into the per-request wire payload. */
+export function toWireProvider(p: ProviderConfig) {
+  return {
+    kind: p.kind,
+    apiKey: p.apiKey,
+    model: p.model,
+    ...(p.kind === "custom" ? { baseUrl: p.baseUrl, headers: p.headers } : {}),
+  }
+}
+
 export const PROVIDER_KIND_LABELS: Record<ProviderKind, string> = {
   gateway: "Vercel AI Gateway",
   openai: "OpenAI",
   anthropic: "Anthropic",
   google: "Google",
+  custom: "Custom (OpenAI-compatible)",
 }
 
 export const DEFAULT_MODELS: Record<ProviderKind, string> = {
@@ -54,12 +75,17 @@ export const DEFAULT_MODELS: Record<ProviderKind, string> = {
   openai: "gpt-5.5",
   anthropic: "claude-sonnet-5",
   google: "gemini-3.1-pro-preview",
+  custom: "",
 }
 
-/** Image-capable model defaults for the Image Generator agent */
+/**
+ * Image-capable model defaults for the Image Generator agent.
+ * Custom providers keep their user-configured model as-is.
+ */
 export const DEFAULT_IMAGE_MODELS: Record<ProviderKind, string> = {
   gateway: "google/gemini-3.1-flash-image",
   openai: "gpt-image-2",
   anthropic: "",
   google: "gemini-3.1-flash-image",
+  custom: "",
 }

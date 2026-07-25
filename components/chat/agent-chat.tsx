@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { useAgentProvider } from "@/hooks/use-agent-provider"
 import type { AgentDefinition } from "@/lib/agents/registry"
+import { toWireProvider } from "@/lib/store/types"
 import { cn } from "@/lib/utils"
 
 function CopyButton({ text }: { text: string }) {
@@ -64,7 +65,7 @@ export function AgentChat({ agent }: { agent: AgentDefinition }) {
       {
         body: {
           agentId: agent.id,
-          provider: { kind: provider.kind, apiKey: provider.apiKey, model: provider.model },
+          provider: toWireProvider(provider),
           instructions,
         },
       },

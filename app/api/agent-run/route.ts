@@ -1,7 +1,7 @@
 import { generateText } from "ai"
 import { getAgent } from "@/lib/agents/registry"
 import { buildSystemPrompt } from "@/lib/agents/prompts"
-import { resolveLanguageModel, type WireProviderConfig } from "@/lib/ai/resolve-model"
+import { resolveLanguageModel, wireProviderSchema, type WireProviderConfig } from "@/lib/ai/resolve-model"
 
 export const maxDuration = 300
 
@@ -32,9 +32,11 @@ export async function POST(req: Request) {
   if (!body.input?.trim()) {
     return Response.json({ error: "Input is required" }, { status: 400 })
   }
-  if (!body.provider?.apiKey || !body.provider?.model) {
+  const providerParsed = wireProviderSchema.safeParse(body.provider)
+  if (!providerParsed.success) {
     return Response.json({ error: "Provider configuration is incomplete" }, { status: 400 })
   }
+  body.provider = providerParsed.data
 
   let system: string
   try {

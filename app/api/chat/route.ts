@@ -8,18 +8,14 @@ import {
 import { z } from "zod"
 import { buildSystemPrompt } from "@/lib/agents/prompts"
 import { isValidAgentId } from "@/lib/agents/registry"
-import { resolveLanguageModel } from "@/lib/ai/resolve-model"
+import { resolveLanguageModel, wireProviderSchema } from "@/lib/ai/resolve-model"
 
 export const maxDuration = 120
 
 const bodySchema = z.object({
   messages: z.array(z.custom<UIMessage>()),
   agentId: z.string(),
-  provider: z.object({
-    kind: z.enum(["gateway", "openai", "anthropic", "google"]),
-    apiKey: z.string().min(1),
-    model: z.string().min(1),
-  }),
+  provider: wireProviderSchema,
   instructions: z.string().optional(),
 })
 
