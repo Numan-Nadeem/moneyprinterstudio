@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation"
 import { getAgent, AGENTS } from "@/lib/agents/registry"
-import { loadMasterPrompt } from "@/lib/agents/prompts"
 import { Badge } from "@/components/ui/badge"
+import { AgentChat } from "@/components/chat/agent-chat"
 
 export function generateStaticParams() {
   return AGENTS.map((agent) => ({ agentId: agent.id }))
@@ -16,13 +16,11 @@ export default async function AgentPage({
   const agent = getAgent(agentId)
   if (!agent) notFound()
 
-  const masterPrompt = await loadMasterPrompt(agent.id)
-
   return (
-    <div className="mx-auto max-w-4xl px-6 py-12">
-      <div className="animate-fade-up">
-        <div className="flex items-center gap-3">
-          <h1 className="font-serif text-3xl tracking-tight">{agent.name}</h1>
+    <div className="flex h-svh min-h-0 flex-col">
+      <header className="shrink-0 border-b bg-background">
+        <div className="mx-auto flex w-full max-w-3xl items-center gap-3 px-6 py-4">
+          <h1 className="font-serif text-xl tracking-tight">{agent.name}</h1>
           <Badge
             className={
               agent.type === "image"
@@ -33,24 +31,10 @@ export default async function AgentPage({
             {agent.type === "image" ? "Image model" : "Text model"}
           </Badge>
         </div>
-        <p className="mt-2 max-w-2xl leading-relaxed text-muted-foreground">{agent.description}</p>
+      </header>
+      <div className="min-h-0 flex-1">
+        <AgentChat agent={agent} />
       </div>
-
-      <div className="mt-10 rounded-lg border bg-card p-6">
-        <p className="text-sm text-muted-foreground">
-          Chat interface arrives in a later phase. This agent will open with:
-        </p>
-        <p className="mt-3 font-serif text-lg italic">&ldquo;{agent.openingLine}&rdquo;</p>
-      </div>
-
-      <details className="mt-8 rounded-lg border bg-card">
-        <summary className="cursor-pointer px-6 py-4 text-sm font-medium">
-          Master prompt <span className="ml-2 font-mono text-xs font-normal text-muted-foreground">{agent.promptFile}</span>
-        </summary>
-        <pre className="overflow-x-auto border-t px-6 py-4 font-mono text-xs leading-relaxed whitespace-pre-wrap text-muted-foreground">
-          {masterPrompt}
-        </pre>
-      </details>
     </div>
   )
 }
