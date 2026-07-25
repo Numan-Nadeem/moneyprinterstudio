@@ -189,12 +189,18 @@ export function usePipeline() {
           settings.agentSettings["image-prompt-extractor"]?.instructions ?? "",
         )
         if (cancelled.current) return
-        const parsed = parseScenes(output)
+        let parsed = parseScenes(output)
+        if (parsed.length === 0) {
+          // The extractor model returned an unparseable shape — fall back to
+          // parsing the pasted storyboard directly, which follows the same
+          // scene/section structure.
+          parsed = parseScenes(storyboard)
+        }
         if (parsed.length === 0) {
           setState((s) => ({
             ...s,
             stage: "error",
-            error: "No scenes were detected in the extractor output. Check that the storyboard contains scenes.",
+            error: `No scenes were detected. Make sure the storyboard has scene headings like "# SCENE 1 — TITLE" with an "## Image Generation Prompt" section per scene. Extractor output started with: "${output.slice(0, 160).replace(/\s+/g, " ").trim()}..."`,
           }))
           return
         }
