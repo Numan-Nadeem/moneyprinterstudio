@@ -6,7 +6,12 @@ import { useStudioSettings } from "@/hooks/use-studio-settings"
 import { useImageLibrary } from "@/hooks/use-image-library"
 import { getImage } from "@/lib/store/image-db"
 import { PIPELINE_KEY, loadJson, removeJson, saveJson } from "@/lib/store/chat-store"
-import { DEFAULT_IMAGE_MODELS, toWireProvider, type ProviderConfig } from "@/lib/store/types"
+import {
+  DEFAULT_IMAGE_MODELS,
+  applyModelOverride,
+  toWireProvider,
+  type ProviderConfig,
+} from "@/lib/store/types"
 
 export type PipelineStage =
   | "idle"
@@ -63,6 +68,7 @@ function resolveAgentProvider(
     ? settings.providers.find((p) => p.id === settings.defaultProviderId)
     : undefined
   let provider: ProviderConfig | null = assigned ?? fallback ?? settings.providers[0] ?? null
+  if (provider) provider = applyModelOverride(provider, agentSettings)
   if (provider && image && provider.kind !== "custom") {
     // Custom providers keep their user-configured model; built-in kinds swap
     // to their image-capable default.

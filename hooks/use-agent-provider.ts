@@ -1,7 +1,7 @@
 "use client"
 
 import { useStudioSettings } from "@/hooks/use-studio-settings"
-import { DEFAULT_IMAGE_MODELS, type ProviderConfig } from "@/lib/store/types"
+import { DEFAULT_IMAGE_MODELS, applyModelOverride, type ProviderConfig } from "@/lib/store/types"
 
 /**
  * Resolves the effective provider + instructions for an agent:
@@ -27,6 +27,7 @@ export function useAgentProvider(
     : undefined
 
   let provider: ProviderConfig | null = assigned ?? fallback ?? settings.providers[0] ?? null
+  if (provider) provider = applyModelOverride(provider, agentSettings)
 
   if (provider && options?.image && provider.kind !== "custom") {
     // Custom providers keep their user-configured model; built-in kinds swap

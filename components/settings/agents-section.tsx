@@ -32,14 +32,34 @@ function AgentRow({ agentId, name, description }: { agentId: string; name: strin
     }))
   }
 
-  function setProvider(providerId: string | null) {
+  function setProvider(providerId: string | null, model: string | null) {
     update((s) => ({
       ...s,
       agentSettings: {
         ...s.agentSettings,
-        [agentId]: { ...(s.agentSettings[agentId] ?? { instructions: "" }), providerId },
+        [agentId]: { ...(s.agentSettings[agentId] ?? { instructions: "" }), providerId, model },
       },
     }))
+  }
+
+  // Selection value encodes provider + optional model: "id" or "id::model"
+  const selectValue = current.providerId
+    ? current.model
+      ? `${current.providerId}::${current.model}`
+      : current.providerId
+    : NONE
+
+  function onSelect(v: string) {
+    if (v === NONE) {
+      setProvider(null, null)
+      return
+    }
+    const sep = v.indexOf("::")
+    if (sep === -1) {
+      setProvider(v, null)
+    } else {
+      setProvider(v.slice(0, sep), v.slice(sep + 2))
+    }
   }
 
   return (
@@ -53,20 +73,28 @@ function AgentRow({ agentId, name, description }: { agentId: string; name: strin
           <Label htmlFor={`provider-${agentId}`} className="text-xs">
             Provider
           </Label>
-          <Select
-            value={current.providerId ?? NONE}
-            onValueChange={(v) => setProvider(v === NONE ? null : v)}
-          >
+          <Select value={selectValue} onValueChange={onSelect}>
             <SelectTrigger id={`provider-${agentId}`} size="sm" className="w-full">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value={NONE}>Default provider</SelectItem>
-              {settings.providers.map((p) => (
-                <SelectItem key={p.id} value={p.id}>
-                  {p.label}
-                </SelectItem>
-              ))}
+              {settings.providers.flatMap((p) => {
+                const models = p.models?.filter((m) => m.id) ?? []
+                if (models.length > 1) {
+                  // One option per model so the exact model can be chosen
+                  return models.map((m) => (
+                    <SelectItem key={`${p.id}::${m.id}`} value={`${p.id}::${m.id}`}>
+                      {p.label} — {m.label || m.id}
+                    </SelectItem>
+                  ))
+                }
+                return (
+                  <SelectItem key={p.id} value={p.id}>
+                    {p.label}
+                  </SelectItem>
+                )
+              })}
             </SelectContent>
           </Select>
         </div>
