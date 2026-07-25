@@ -46,6 +46,10 @@ export async function saveImage(image: GeneratedImage): Promise<void> {
   await tx("readwrite", (s) => s.put(image))
 }
 
+export async function getImage(id: string): Promise<GeneratedImage | undefined> {
+  return tx<GeneratedImage | undefined>("readonly", (s) => s.get(id))
+}
+
 export async function listImages(): Promise<GeneratedImage[]> {
   const all = await tx<GeneratedImage[]>("readonly", (s) => s.getAll())
   return all.sort((a, b) => b.createdAt - a.createdAt)

@@ -3,7 +3,8 @@
 import { useEffect, useRef, useState } from "react"
 import Link from "next/link"
 import { useChat } from "@ai-sdk/react"
-import { DefaultChatTransport } from "ai"
+import { chatKey, saveJson } from "@/lib/store/chat-store"
+import { getAgentChat } from "@/lib/store/chat-registry"
 import { Streamdown } from "streamdown"
 import {
   ArrowUpIcon,
@@ -46,12 +47,20 @@ export function AgentChat({ agent }: { agent: AgentDefinition }) {
   const [input, setInput] = useState("")
   const bottomRef = useRef<HTMLDivElement>(null)
 
+  // Persistent Chat instance: lives at module scope, so navigating to
+  // another tab neither clears the conversation nor aborts an in-flight
+  // streaming response — it keeps generating and is fully restored on return.
   const { messages, sendMessage, status, stop, error } = useChat({
-    id: `agent-${agent.id}`,
-    transport: new DefaultChatTransport({ api: "/api/chat" }),
+    chat: getAgentChat(agent.id),
   })
 
   const busy = status === "submitted" || status === "streaming"
+
+  // Mirror settled conversations to localStorage (covers stop() and edits;
+  // onFinish in the registry covers completed streams).
+  useEffect(() => {
+    if (!busy) saveJson(chatKey(agent.id), messages)
+  }, [messages, busy, agent.id])
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" })

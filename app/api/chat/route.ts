@@ -19,12 +19,35 @@ const bodySchema = z.object({
   instructions: z.string().optional(),
 })
 
+/**
+ * Strips provider-specific state from replayed history. Persisted/restored
+ * messages can carry OpenAI Responses item references (e.g. reasoning ids
+ * like "rs_...") in their provider metadata; replaying those against a new
+ * request fails with "Item with id ... not found" because the items are not
+ * stored server-side. Dropping reasoning parts and provider metadata makes
+ * every request self-contained.
+ */
+function sanitizeHistory(messages: UIMessage[]): UIMessage[] {
+  return messages.map((message) => ({
+    ...message,
+    parts: message.parts
+      .filter((part) => part.type !== "reasoning")
+      .map((part) => {
+        const { providerMetadata: _pm, ...rest } = part as typeof part & {
+          providerMetadata?: unknown
+        }
+        return rest as typeof part
+      }),
+  }))
+}
+
 export async function POST(req: Request) {
   const parsed = bodySchema.safeParse(await req.json())
   if (!parsed.success) {
     return Response.json({ error: "Invalid request body" }, { status: 400 })
   }
-  const { messages, agentId, provider, instructions } = parsed.data
+  const { messages: rawMessages, agentId, provider, instructions } = parsed.data
+  const messages = sanitizeHistory(rawMessages)
 
   if (!isValidAgentId(agentId)) {
     return Response.json({ error: "Unknown agent" }, { status: 404 })

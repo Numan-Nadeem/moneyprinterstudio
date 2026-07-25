@@ -15,6 +15,8 @@ import { Label } from "@/components/ui/label"
 import { useAgentProvider } from "@/hooks/use-agent-provider"
 import { useStudioSettings } from "@/hooks/use-studio-settings"
 import { useImageLibrary } from "@/hooks/use-image-library"
+import { getImage } from "@/lib/store/image-db"
+import { imageChatKey, loadJson, saveJson } from "@/lib/store/chat-store"
 import type { AgentDefinition } from "@/lib/agents/registry"
 import { toWireProvider } from "@/lib/store/types"
 
@@ -42,8 +44,49 @@ export function ImageChat({ agent }: { agent: AgentDefinition }) {
   const [input, setInput] = useState("")
   const [useContinuity, setUseContinuity] = useState(true)
   const bottomRef = useRef<HTMLDivElement>(null)
+  const restored = useRef(false)
 
   const busy = turns.some((t) => t.status === "generating")
+
+  // Restore previous turns (metadata from localStorage, images from IndexedDB)
+  useEffect(() => {
+    let active = true
+    async function restore() {
+      const saved = loadJson<Omit<Turn, "image">[]>(imageChatKey(agent.id))
+      if (saved?.length) {
+        const hydrated = await Promise.all(
+          saved.map(async (t): Promise<Turn> => {
+            if (t.status === "generating") {
+              return { ...t, status: "error", error: "Generation was interrupted by navigation." }
+            }
+            if (t.status === "done") {
+              const stored = await getImage(t.id)
+              return stored
+                ? { ...t, image: stored.dataUrl }
+                : { ...t, status: "error", error: "Image was removed from the gallery." }
+            }
+            return t
+          }),
+        )
+        if (active) setTurns(hydrated)
+      }
+      restored.current = true
+    }
+    void restore()
+    return () => {
+      active = false
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [agent.id])
+
+  // Persist turn metadata (images live in IndexedDB, keyed by turn id)
+  useEffect(() => {
+    if (!restored.current) return
+    saveJson(
+      imageChatKey(agent.id),
+      turns.map(({ image: _image, ...rest }) => rest),
+    )
+  }, [turns, agent.id])
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" })
