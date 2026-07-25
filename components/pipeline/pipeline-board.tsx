@@ -180,20 +180,20 @@ export function PipelineBoard() {
         </section>
       )}
 
-      {/* Video prompts output */}
+      {/* Video prompts output — one card per scene */}
       {state.videoPrompts && (
-        <OutputBlock
+        <PerSceneOutputBlock
           title="Video generation prompts"
           content={state.videoPrompts}
           filename="video-prompts.txt"
           loadingNext={state.stage === "post-processing"}
-          loadingLabel="Running post processing…"
+          loadingLabel="Running video metadata…"
         />
       )}
 
-      {/* Post processing output */}
+      {/* Video metadata output */}
       {state.postProcessing && (
-        <OutputBlock title="Post processing + video details" content={state.postProcessing} filename="post-processing.txt" />
+        <OutputBlock title="Video metadata" content={state.postProcessing} filename="video-metadata.txt" />
       )}
 
       {state.stage === "complete" && (
@@ -261,6 +261,114 @@ function SceneCard({
         </span>
       </figcaption>
     </figure>
+  )
+}
+
+/**
+ * Splits a multi-scene text block on scene headings so each scene gets its
+ * own card with a dedicated copy button — much easier to paste per-scene.
+ * Falls back to a single block when no scene structure is detected.
+ */
+function splitIntoScenes(text: string): { label: string; body: string }[] {
+  // Match lines like "Scene 1", "SCENE 1 —", "## Scene 1 — Title", etc.
+  const sceneRegex = /^(?:#{1,3}\s*)?(?:scene|SCENE)\s+(\d+)[^\n]*/m
+  const parts = text.split(/(?=(?:^|\n)(?:#{1,3}\s*)?(?:scene|SCENE)\s+\d+)/im)
+  const scenes: { label: string; body: string }[] = []
+  for (const part of parts) {
+    const trimmed = part.trim()
+    if (!trimmed) continue
+    const match = sceneRegex.exec(trimmed)
+    if (match) {
+      const firstLine = trimmed.split("\n")[0].replace(/^#{1,3}\s*/, "").trim()
+      scenes.push({ label: firstLine, body: trimmed })
+    } else if (scenes.length === 0) {
+      // preamble before first scene heading
+      scenes.push({ label: "Output", body: trimmed })
+    }
+  }
+  return scenes.length > 1 ? scenes : [{ label: "Output", body: text.trim() }]
+}
+
+function PerSceneOutputBlock({
+  title,
+  content,
+  filename,
+  loadingNext,
+  loadingLabel,
+}: {
+  title: string
+  content: string
+  filename: string
+  loadingNext?: boolean
+  loadingLabel?: string
+}) {
+  const scenes = splitIntoScenes(content)
+  const [copiedAll, setCopiedAll] = useState(false)
+
+  return (
+    <section className="flex flex-col gap-3">
+      <div className="flex items-center justify-between">
+        <h2 className="font-mono text-[10px] tracking-[0.1em] text-muted-foreground uppercase">{title}</h2>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={async () => {
+              await navigator.clipboard.writeText(content)
+              setCopiedAll(true)
+              setTimeout(() => setCopiedAll(false), 1500)
+            }}
+          >
+            <CopyIcon className="size-3.5" weight="bold" aria-hidden />
+            {copiedAll ? "Copied all" : "Copy all"}
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => downloadText(content, filename)}>
+            <DownloadSimpleIcon className="size-3.5" weight="bold" aria-hidden />
+            Download
+          </Button>
+        </div>
+      </div>
+
+      <div className="flex flex-col gap-3">
+        {scenes.map((scene, i) => (
+          <ScenePromptCard key={i} label={scene.label} body={scene.body} />
+        ))}
+      </div>
+
+      {loadingNext && (
+        <p className="flex items-center gap-2 text-xs text-muted-foreground" role="status">
+          <SpinnerIcon className="size-3.5 animate-spin" aria-hidden />
+          {loadingLabel}
+        </p>
+      )}
+    </section>
+  )
+}
+
+function ScenePromptCard({ label, body }: { label: string; body: string }) {
+  const [copied, setCopied] = useState(false)
+  return (
+    <div className="flex flex-col gap-2 rounded-lg border border-border bg-card">
+      <div className="flex items-center justify-between gap-3 border-b border-border px-4 py-2.5">
+        <span className="truncate font-mono text-[10px] tracking-[0.08em] text-muted-foreground uppercase">
+          {label}
+        </span>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-7 shrink-0 gap-1.5 px-2.5 text-xs"
+          onClick={async () => {
+            await navigator.clipboard.writeText(body)
+            setCopied(true)
+            setTimeout(() => setCopied(false), 1500)
+          }}
+        >
+          <CopyIcon className="size-3" weight="bold" aria-hidden />
+          {copied ? "Copied" : "Copy"}
+        </Button>
+      </div>
+      <pre className="px-4 pb-4 font-mono text-xs leading-relaxed whitespace-pre-wrap">{body}</pre>
+    </div>
   )
 }
 
