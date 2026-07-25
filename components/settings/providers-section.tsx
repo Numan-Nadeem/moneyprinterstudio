@@ -137,6 +137,14 @@ export function ProvidersSection() {
     update((s) => ({
       ...s,
       providers: s.providers.map((p) => (p.id === id ? { ...p, model: modelId } : p)),
+      // Swapping the active model is authoritative: clear per-agent model
+      // overrides pointing at this provider so the swap applies everywhere.
+      agentSettings: Object.fromEntries(
+        Object.entries(s.agentSettings).map(([agentId, as]) => [
+          agentId,
+          as.providerId === id ? { ...as, model: null } : as,
+        ]),
+      ),
     }))
   }
 

@@ -42,11 +42,31 @@ function AgentRow({ agentId, name, description }: { agentId: string; name: strin
     }))
   }
 
-  // Selection value encodes provider + optional model: "id" or "id::model"
+  // Resolve the provider + model this agent will actually use
+  const assigned = current.providerId
+    ? settings.providers.find((p) => p.id === current.providerId)
+    : undefined
+  const fallback = settings.defaultProviderId
+    ? settings.providers.find((p) => p.id === settings.defaultProviderId)
+    : undefined
+  const effective = assigned ?? fallback ?? settings.providers[0]
+  const overrideValid =
+    assigned &&
+    current.model &&
+    (current.model === assigned.model || assigned.models?.some((m) => m.id === current.model))
+  const effectiveModel = overrideValid ? current.model : effective?.model
+
+  // Selection value encodes provider + optional model: "id" or "id::model".
+  // For multi-model providers without an override, reflect the provider's
+  // active model so the trigger always shows what will actually run.
+  const isMultiModel = (p: (typeof settings.providers)[number] | undefined) =>
+    (p?.models?.filter((m) => m.id).length ?? 0) > 1
   const selectValue = current.providerId
-    ? current.model
+    ? overrideValid
       ? `${current.providerId}::${current.model}`
-      : current.providerId
+      : isMultiModel(assigned)
+        ? `${current.providerId}::${assigned?.model}`
+        : current.providerId
     : NONE
 
   function onSelect(v: string) {
@@ -97,6 +117,11 @@ function AgentRow({ agentId, name, description }: { agentId: string; name: strin
               })}
             </SelectContent>
           </Select>
+          {effective && (
+            <p className="truncate font-mono text-xs text-muted-foreground">
+              Uses: {effective.label} · {effectiveModel}
+            </p>
+          )}
         </div>
       </div>
       <div className="flex flex-col gap-2">
