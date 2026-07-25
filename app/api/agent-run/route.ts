@@ -6,6 +6,7 @@ import {
   wireProviderSchema,
   type WireProviderConfig,
 } from "@/lib/ai/resolve-model"
+import { explainProviderError } from "@/lib/ai/provider-errors"
 
 export const maxDuration = 300
 
@@ -69,6 +70,8 @@ export async function POST(req: Request) {
     }
   }
 
-  const message = lastError instanceof Error ? lastError.message : "Agent run failed"
-  return Response.json({ error: message }, { status: 502 })
+  return Response.json(
+    { error: explainProviderError(lastError, body.provider.model) },
+    { status: 502 },
+  )
 }

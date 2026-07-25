@@ -13,6 +13,7 @@ import { z } from "zod"
 import { buildSystemPrompt } from "@/lib/agents/prompts"
 import { isValidAgentId } from "@/lib/agents/registry"
 import { resolveLanguageModelCandidates, wireProviderSchema } from "@/lib/ai/resolve-model"
+import { explainProviderError } from "@/lib/ai/provider-errors"
 
 export const maxDuration = 120
 
@@ -68,10 +69,9 @@ export async function POST(req: Request) {
   return createUIMessageStreamResponse({
     stream: createUIMessageStream({
       execute: async ({ writer }) => {
-        await streamWithFallback(writer, candidates, system, modelMessages)
+        await streamWithFallback(writer, candidates, system, modelMessages, provider.model)
       },
-      onError: (error) =>
-        error instanceof Error ? error.message : "The provider returned an error. Check your API key and model.",
+      onError: (error) => explainProviderError(error, provider.model),
     }),
   })
 }
@@ -81,6 +81,7 @@ async function streamWithFallback(
   candidates: LanguageModel[],
   system: string,
   modelMessages: ModelMessage[],
+  requestedModel: string,
 ) {
   let lastError: unknown = null
 
@@ -134,11 +135,7 @@ async function streamWithFallback(
 
     if (!failedBeforeContent) return
     if (isLast) {
-      const message =
-        lastError instanceof Error
-          ? lastError.message
-          : "The provider returned an error. Check your API key and model."
-      writer.write({ type: "error", errorText: message })
+      writer.write({ type: "error", errorText: explainProviderError(lastError, requestedModel) })
     }
   }
 }
