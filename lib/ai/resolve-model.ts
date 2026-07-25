@@ -36,6 +36,21 @@ export function createCustomOpenAICompatible(config: WireProviderConfig) {
 }
 
 /**
+ * Resolves a provider config into an ordered list of language model
+ * candidates. For custom OpenAI-compatible proxies, different models may be
+ * served through different endpoint formats — some only via Chat Completions
+ * (/v1/chat/completions), others only via the Responses API (/v1/responses).
+ * Callers should try each candidate in order and fall back on API errors.
+ */
+export function resolveLanguageModelCandidates(config: WireProviderConfig): LanguageModel[] {
+  if (config.kind === "custom") {
+    const factory = createCustomOpenAICompatible(config)
+    return [factory.chat(config.model), factory.responses(config.model)]
+  }
+  return [resolveLanguageModel(config)]
+}
+
+/**
  * Resolves a BYOK provider config (sent per-request, never stored server-side)
  * into an AI SDK language model instance.
  */
@@ -51,7 +66,10 @@ export function resolveLanguageModel(config: WireProviderConfig): LanguageModel 
     case "google":
       return createGoogleGenerativeAI({ apiKey })(model)
     case "custom":
-      return createCustomOpenAICompatible(config)(model)
+      // Use Chat Completions (/v1/chat/completions) explicitly. The default
+      // factory targets the OpenAI Responses API (/v1/responses), which most
+      // OpenAI-compatible proxies do not support or route incorrectly.
+      return createCustomOpenAICompatible(config).chat(model)
     default:
       throw new Error(`Unsupported provider kind: ${kind satisfies never}`)
   }

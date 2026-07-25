@@ -1,14 +1,18 @@
 import {
   convertToModelMessages,
+  createUIMessageStream,
   createUIMessageStreamResponse,
   streamText,
   toUIMessageStream,
+  type LanguageModel,
+  type ModelMessage,
   type UIMessage,
+  type UIMessageChunk,
 } from "ai"
 import { z } from "zod"
 import { buildSystemPrompt } from "@/lib/agents/prompts"
 import { isValidAgentId } from "@/lib/agents/registry"
-import { resolveLanguageModel, wireProviderSchema } from "@/lib/ai/resolve-model"
+import { resolveLanguageModelCandidates, wireProviderSchema } from "@/lib/ai/resolve-model"
 
 export const maxDuration = 120
 
@@ -54,21 +58,87 @@ export async function POST(req: Request) {
   }
 
   const system = await buildSystemPrompt(agentId, instructions)
+  const modelMessages = await convertToModelMessages(messages)
 
-  const result = streamText({
-    model: resolveLanguageModel(provider),
-    instructions: system,
-    messages: await convertToModelMessages(messages),
-    onError: ({ error }) => {
-      console.error("[chat] stream error:", error)
-    },
-  })
+  // Custom OpenAI-compatible proxies route models to different endpoint
+  // formats (Chat Completions vs Responses API). Try each candidate in
+  // order; if one fails before producing any content, fall back to the next.
+  const candidates = resolveLanguageModelCandidates(provider)
 
   return createUIMessageStreamResponse({
-    stream: toUIMessageStream({
-      stream: result.stream,
+    stream: createUIMessageStream({
+      execute: async ({ writer }) => {
+        await streamWithFallback(writer, candidates, system, modelMessages)
+      },
       onError: (error) =>
         error instanceof Error ? error.message : "The provider returned an error. Check your API key and model.",
     }),
   })
+}
+
+async function streamWithFallback(
+  writer: { write: (chunk: UIMessageChunk) => void },
+  candidates: LanguageModel[],
+  system: string,
+  modelMessages: ModelMessage[],
+) {
+  let lastError: unknown = null
+
+  for (let i = 0; i < candidates.length; i++) {
+    const isLast = i === candidates.length - 1
+    const result = streamText({
+      model: candidates[i],
+      instructions: system,
+      messages: modelMessages,
+      onError: ({ error }) => {
+        console.error(`[chat] stream error (format ${i + 1}/${candidates.length}):`, error)
+      },
+    })
+
+    // Buffer structural chunks until real content arrives; if the stream
+    // errors before any content, discard the buffer and try the next format.
+    const buffered: UIMessageChunk[] = []
+    let contentSeen = false
+    let failedBeforeContent = false
+
+    const reader = toUIMessageStream({
+      stream: result.stream,
+      onError: (error) => {
+        lastError = error
+        return error instanceof Error ? error.message : "Provider error"
+      },
+    }).getReader()
+
+    try {
+      while (true) {
+        const { done, value: chunk } = await reader.read()
+        if (done) break
+        if (chunk.type === "error" && !contentSeen) {
+          failedBeforeContent = true
+          break
+        }
+        if (contentSeen) {
+          writer.write(chunk)
+          continue
+        }
+        buffered.push(chunk)
+        if (chunk.type !== "start" && chunk.type !== "start-step" && chunk.type !== "error") {
+          contentSeen = true
+          for (const b of buffered) writer.write(b)
+          buffered.length = 0
+        }
+      }
+    } finally {
+      reader.releaseLock()
+    }
+
+    if (!failedBeforeContent) return
+    if (isLast) {
+      const message =
+        lastError instanceof Error
+          ? lastError.message
+          : "The provider returned an error. Check your API key and model."
+      writer.write({ type: "error", errorText: message })
+    }
+  }
 }

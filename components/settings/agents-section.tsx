@@ -32,14 +32,54 @@ function AgentRow({ agentId, name, description }: { agentId: string; name: strin
     }))
   }
 
-  function setProvider(providerId: string | null) {
+  function setProvider(providerId: string | null, model: string | null) {
     update((s) => ({
       ...s,
       agentSettings: {
         ...s.agentSettings,
-        [agentId]: { ...(s.agentSettings[agentId] ?? { instructions: "" }), providerId },
+        [agentId]: { ...(s.agentSettings[agentId] ?? { instructions: "" }), providerId, model },
       },
     }))
+  }
+
+  // Resolve the provider + model this agent will actually use
+  const assigned = current.providerId
+    ? settings.providers.find((p) => p.id === current.providerId)
+    : undefined
+  const fallback = settings.defaultProviderId
+    ? settings.providers.find((p) => p.id === settings.defaultProviderId)
+    : undefined
+  const effective = assigned ?? fallback ?? settings.providers[0]
+  const overrideValid =
+    assigned &&
+    current.model &&
+    (current.model === assigned.model || assigned.models?.some((m) => m.id === current.model))
+  const effectiveModel = overrideValid ? current.model : effective?.model
+
+  // Selection value encodes provider + optional model: "id" or "id::model".
+  // For multi-model providers without an override, reflect the provider's
+  // active model so the trigger always shows what will actually run.
+  const isMultiModel = (p: (typeof settings.providers)[number] | undefined) =>
+    (p?.models?.filter((m) => m.id).length ?? 0) > 1
+  const selectValue = current.providerId
+    ? overrideValid
+      ? `${current.providerId}::${current.model}`
+      : isMultiModel(assigned)
+        ? `${current.providerId}::${assigned?.model}`
+        : current.providerId
+    : NONE
+
+  function onSelect(v: string) {
+    if (v === NONE) {
+      setProvider(null, null)
+      return
+    }
+    const sep = v.indexOf("::")
+    if (sep === -1) {
+      setProvider(v, null)
+    } else {
+      setProvider(v.slice(0, sep), v.slice(sep + 2))
+    }
   }
 
   return (
@@ -53,22 +93,35 @@ function AgentRow({ agentId, name, description }: { agentId: string; name: strin
           <Label htmlFor={`provider-${agentId}`} className="text-xs">
             Provider
           </Label>
-          <Select
-            value={current.providerId ?? NONE}
-            onValueChange={(v) => setProvider(v === NONE ? null : v)}
-          >
+          <Select value={selectValue} onValueChange={onSelect}>
             <SelectTrigger id={`provider-${agentId}`} size="sm" className="w-full">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value={NONE}>Default provider</SelectItem>
-              {settings.providers.map((p) => (
-                <SelectItem key={p.id} value={p.id}>
-                  {p.label}
-                </SelectItem>
-              ))}
+              {settings.providers.flatMap((p) => {
+                const models = p.models?.filter((m) => m.id) ?? []
+                if (models.length > 1) {
+                  // One option per model so the exact model can be chosen
+                  return models.map((m) => (
+                    <SelectItem key={`${p.id}::${m.id}`} value={`${p.id}::${m.id}`}>
+                      {p.label} — {m.label || m.id}
+                    </SelectItem>
+                  ))
+                }
+                return (
+                  <SelectItem key={p.id} value={p.id}>
+                    {p.label}
+                  </SelectItem>
+                )
+              })}
             </SelectContent>
           </Select>
+          {effective && (
+            <p className="truncate font-mono text-xs text-muted-foreground">
+              Uses: {effective.label} · {effectiveModel}
+            </p>
+          )}
         </div>
       </div>
       <div className="flex flex-col gap-2">

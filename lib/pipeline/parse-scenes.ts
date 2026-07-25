@@ -15,11 +15,17 @@ export interface ParsedScene {
  *   ## IMAGE GENERATION PROMPT
  *   ...content...
  *
- * The parser is tolerant of heading level (`#`/`##`/`###`), dash style
- * (`—`/`-`/`–`/`:`), and missing sections. Scene order is preserved.
+ * The parser is tolerant of heading level (`#`/`##`/`###`/none), bold
+ * markers (`**Scene 1**`), dash style (`—`/`-`/`–`/`:`), code fences,
+ * and missing sections. Scene order is preserved.
  */
-export function parseScenes(text: string): ParsedScene[] {
-  const sceneHeading = /^#{1,3}\s*Scene\s+(\d+)\s*(?:[—–:-]\s*(.*))?$/gim
+export function parseScenes(rawText: string): ParsedScene[] {
+  // Models sometimes wrap output in markdown code fences despite instructions.
+  const text = rawText.replace(/^```[a-z]*\s*$/gim, "")
+
+  // Heading forms matched (case-insensitive): "# Scene 1 — Title",
+  // "## SCENE 2: Title", "**Scene 3 — Title**", "Scene 4 — Title"
+  const sceneHeading = /^\s*(?:#{1,4}\s*)?(?:\*\*)?\s*Scene\s+(\d+)\s*(?:[—–:-]+\s*(.*?))?\s*(?:\*\*)?\s*$/gim
   const matches = [...text.matchAll(sceneHeading)]
   if (matches.length === 0) return []
 
@@ -30,7 +36,7 @@ export function parseScenes(text: string): ParsedScene[] {
 
     return {
       index: Number.parseInt(match[1], 10) || i + 1,
-      title: (match[2] ?? "").replace(/[[\]]/g, "").trim() || `Scene ${match[1]}`,
+      title: (match[2] ?? "").replace(/[[\]*]/g, "").trim() || `Scene ${match[1]}`,
       body,
       imagePrompt: extractSection(body, "IMAGE GENERATION PROMPT") ?? extractSection(body, "IMAGE PROMPT"),
     }
@@ -42,7 +48,11 @@ export function parseScenes(text: string): ParsedScene[] {
  * the content exactly as written until the next heading or separator.
  */
 export function extractSection(body: string, section: string): string | null {
-  const heading = new RegExp(`^#{2,4}\\s*${escapeRegExp(section)}\\s*$`, "im")
+  // Matches "## SECTION", "### Section:", "**SECTION**", with optional colon
+  const heading = new RegExp(
+    `^(?:#{2,4}\\s*|\\*\\*)\\s*${escapeRegExp(section)}\\s*:?\\s*(?:\\*\\*)?\\s*$`,
+    "im",
+  )
   const match = heading.exec(body)
   if (!match) return null
 

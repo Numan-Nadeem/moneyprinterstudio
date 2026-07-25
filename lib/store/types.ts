@@ -24,6 +24,23 @@ export interface AgentSettings {
   instructions: string
   /** Provider config id assigned to this agent; falls back to default */
   providerId: string | null
+  /** Specific model id chosen for this agent (multi-model providers) */
+  model?: string | null
+}
+
+/**
+ * Applies an agent's model override to its resolved provider. Only applies
+ * when the override model actually belongs to that provider's model list
+ * (or is its base model), so stale overrides are ignored safely.
+ */
+export function applyModelOverride(
+  provider: ProviderConfig,
+  agentSettings: AgentSettings | undefined,
+): ProviderConfig {
+  const override = agentSettings?.model
+  if (!override || agentSettings?.providerId !== provider.id) return provider
+  const valid = override === provider.model || provider.models?.some((m) => m.id === override)
+  return valid ? { ...provider, model: override } : provider
 }
 
 export interface ReferenceImage {

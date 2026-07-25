@@ -6,7 +6,12 @@ import { useStudioSettings } from "@/hooks/use-studio-settings"
 import { useImageLibrary } from "@/hooks/use-image-library"
 import { getImage } from "@/lib/store/image-db"
 import { PIPELINE_KEY, loadJson, removeJson, saveJson } from "@/lib/store/chat-store"
-import { DEFAULT_IMAGE_MODELS, toWireProvider, type ProviderConfig } from "@/lib/store/types"
+import {
+  DEFAULT_IMAGE_MODELS,
+  applyModelOverride,
+  toWireProvider,
+  type ProviderConfig,
+} from "@/lib/store/types"
 
 export type PipelineStage =
   | "idle"
@@ -63,6 +68,7 @@ function resolveAgentProvider(
     ? settings.providers.find((p) => p.id === settings.defaultProviderId)
     : undefined
   let provider: ProviderConfig | null = assigned ?? fallback ?? settings.providers[0] ?? null
+  if (provider) provider = applyModelOverride(provider, agentSettings)
   if (provider && image && provider.kind !== "custom") {
     // Custom providers keep their user-configured model; built-in kinds swap
     // to their image-capable default.
@@ -189,12 +195,18 @@ export function usePipeline() {
           settings.agentSettings["image-prompt-extractor"]?.instructions ?? "",
         )
         if (cancelled.current) return
-        const parsed = parseScenes(output)
+        let parsed = parseScenes(output)
+        if (parsed.length === 0) {
+          // The extractor model returned an unparseable shape — fall back to
+          // parsing the pasted storyboard directly, which follows the same
+          // scene/section structure.
+          parsed = parseScenes(storyboard)
+        }
         if (parsed.length === 0) {
           setState((s) => ({
             ...s,
             stage: "error",
-            error: "No scenes were detected in the extractor output. Check that the storyboard contains scenes.",
+            error: `No scenes were detected. Make sure the storyboard has scene headings like "# SCENE 1 — TITLE" with an "## Image Generation Prompt" section per scene. Extractor output started with: "${output.slice(0, 160).replace(/\s+/g, " ").trim()}..."`,
           }))
           return
         }

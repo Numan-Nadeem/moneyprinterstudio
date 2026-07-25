@@ -1,7 +1,11 @@
 import { generateText } from "ai"
 import { getAgent } from "@/lib/agents/registry"
 import { buildSystemPrompt } from "@/lib/agents/prompts"
-import { resolveLanguageModel, wireProviderSchema, type WireProviderConfig } from "@/lib/ai/resolve-model"
+import {
+  resolveLanguageModelCandidates,
+  wireProviderSchema,
+  type WireProviderConfig,
+} from "@/lib/ai/resolve-model"
 
 export const maxDuration = 300
 
@@ -45,16 +49,26 @@ export async function POST(req: Request) {
     return Response.json({ error: `Master prompt not found for ${agent.id}` }, { status: 500 })
   }
 
-  try {
-    const model = resolveLanguageModel(body.provider)
-    const result = await generateText({
-      model,
-      system,
-      prompt: body.input,
-    })
-    return Response.json({ text: result.text })
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Agent run failed"
-    return Response.json({ error: message }, { status: 502 })
+  // Custom OpenAI-compatible proxies may serve a given model only through
+  // one endpoint format (Chat Completions vs Responses API) — try each.
+  const candidates = resolveLanguageModelCandidates(body.provider)
+  let lastError: unknown = null
+
+  for (const model of candidates) {
+    try {
+      const result = await generateText({
+        model,
+        system,
+        prompt: body.input,
+        maxRetries: 1,
+      })
+      return Response.json({ text: result.text })
+    } catch (error) {
+      lastError = error
+      console.error("[agent-run] format attempt failed:", error)
+    }
   }
+
+  const message = lastError instanceof Error ? lastError.message : "Agent run failed"
+  return Response.json({ error: message }, { status: 502 })
 }
