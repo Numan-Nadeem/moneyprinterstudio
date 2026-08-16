@@ -86,3 +86,42 @@ export function extractSection(body: string, section: string): string | null {
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
 }
+
+export interface ExtractedScene {
+  title: string
+  imagePrompt: string
+}
+
+/**
+ * Robustly extracts a JSON array of `{ title, imagePrompt }` scenes from a
+ * model response. Tolerates surrounding prose and code fences by isolating
+ * the outermost `[ ... ]` span before parsing. Returns [] on any failure so
+ * callers can fall back to heading-based parsing.
+ */
+export function parseSceneJson(raw: string): ExtractedScene[] {
+  if (!raw) return []
+  const text = raw.replace(/```(?:json)?/gi, "").trim()
+  const start = text.indexOf("[")
+  const end = text.lastIndexOf("]")
+  if (start === -1 || end === -1 || end <= start) return []
+
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(text.slice(start, end + 1))
+  } catch {
+    return []
+  }
+  if (!Array.isArray(parsed)) return []
+
+  return parsed
+    .map((item) => {
+      const record = (item ?? {}) as Record<string, unknown>
+      const prompt = record.imagePrompt ?? record.prompt ?? record.image_prompt
+      return {
+        title: typeof record.title === "string" ? record.title.trim() : "",
+        imagePrompt: typeof prompt === "string" ? prompt.trim() : "",
+      }
+    })
+    .filter((s) => s.imagePrompt.length > 0)
+    .map((s, i) => ({ title: s.title || `Scene ${i + 1}`, imagePrompt: s.imagePrompt }))
+}
