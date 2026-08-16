@@ -59,6 +59,12 @@ export interface StudioSettings {
   referenceImages: ReferenceImage[]
   /** pipeline confirmation mode */
   autoContinue: boolean
+  /** automatically retry a scene when its image generation fails */
+  autoRetry: boolean
+  /** maximum number of automatic retries per scene before giving up */
+  maxRetries: number
+  /** seconds to wait before each automatic retry */
+  retryDelaySeconds: number
 }
 
 export const EMPTY_SETTINGS: StudioSettings = {
@@ -67,6 +73,9 @@ export const EMPTY_SETTINGS: StudioSettings = {
   agentSettings: {},
   referenceImages: [],
   autoContinue: false,
+  autoRetry: true,
+  maxRetries: 3,
+  retryDelaySeconds: 5,
 }
 
 /** Serializes a provider config into the per-request wire payload. */

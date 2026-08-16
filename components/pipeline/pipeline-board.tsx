@@ -236,11 +236,25 @@ function SceneCard({
           <SpinnerIcon className="size-5 animate-spin text-muted-foreground" aria-hidden />
         ) : scene.status === "error" ? (
           <div className="flex flex-col items-center gap-2 px-3 text-center">
-            <WarningCircleIcon className="size-5 text-pastel-red-foreground" weight="bold" aria-hidden />
-            <Button variant="outline" size="sm" onClick={onRetry}>
-              <ArrowCounterClockwiseIcon className="size-3" weight="bold" aria-hidden />
-              Retry
-            </Button>
+            {scene.retryCountdown != null ? (
+              <>
+                <SpinnerIcon className="size-5 animate-spin text-muted-foreground" aria-hidden />
+                <p className="font-mono text-[10px] tracking-[0.05em] text-muted-foreground uppercase">
+                  Retrying in {scene.retryCountdown}s
+                </p>
+                {scene.retryCount != null && (
+                  <p className="text-[10px] text-muted-foreground">Attempt {scene.retryCount}</p>
+                )}
+              </>
+            ) : (
+              <>
+                <WarningCircleIcon className="size-5 text-pastel-red-foreground" weight="bold" aria-hidden />
+                <Button variant="outline" size="sm" onClick={onRetry}>
+                  <ArrowCounterClockwiseIcon className="size-3" weight="bold" aria-hidden />
+                  Retry
+                </Button>
+              </>
+            )}
           </div>
         ) : (
           <span className="font-mono text-[10px] tracking-[0.1em] text-muted-foreground uppercase">Pending</span>
