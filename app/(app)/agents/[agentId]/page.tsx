@@ -1,8 +1,7 @@
 import { notFound } from "next/navigation"
 import { getAgent, AGENTS } from "@/lib/agents/registry"
 import { Badge } from "@/components/ui/badge"
-import { AgentChat } from "@/components/chat/agent-chat"
-import { ImageChat } from "@/components/chat/image-chat"
+import { AgentWorkspace } from "@/components/chat/agent-workspace"
 
 export function generateStaticParams() {
   return AGENTS.map((agent) => ({ agentId: agent.id }))
@@ -20,7 +19,7 @@ export default async function AgentPage({
   return (
     <div className="flex h-svh min-h-0 flex-col">
       <header className="shrink-0 border-b bg-background">
-        <div className="mx-auto flex w-full max-w-3xl items-center gap-3 px-6 py-4">
+        <div className="flex w-full items-center gap-3 px-6 py-4">
           <h1 className="font-serif text-xl tracking-tight">{agent.name}</h1>
           <Badge
             className={
@@ -34,7 +33,7 @@ export default async function AgentPage({
         </div>
       </header>
       <div className="min-h-0 flex-1">
-        {agent.type === "image" ? <ImageChat agent={agent} /> : <AgentChat agent={agent} />}
+        <AgentWorkspace agent={agent} />
       </div>
     </div>
   )

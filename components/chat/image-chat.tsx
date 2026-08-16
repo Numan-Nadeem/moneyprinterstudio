@@ -36,7 +36,15 @@ function downloadDataUrl(dataUrl: string, filename: string) {
   a.click()
 }
 
-export function ImageChat({ agent }: { agent: AgentDefinition }) {
+export function ImageChat({
+  agent,
+  sessionId,
+  onFirstMessage,
+}: {
+  agent: AgentDefinition
+  sessionId: string
+  onFirstMessage?: (text: string) => void
+}) {
   const { provider, instructions } = useAgentProvider(agent.id, { image: true })
   const { settings } = useStudioSettings()
   const { add } = useImageLibrary()
@@ -52,7 +60,7 @@ export function ImageChat({ agent }: { agent: AgentDefinition }) {
   useEffect(() => {
     let active = true
     async function restore() {
-      const saved = loadJson<Omit<Turn, "image">[]>(imageChatKey(agent.id))
+      const saved = loadJson<Omit<Turn, "image">[]>(imageChatKey(agent.id, sessionId))
       if (saved?.length) {
         const hydrated = await Promise.all(
           saved.map(async (t): Promise<Turn> => {
@@ -77,16 +85,16 @@ export function ImageChat({ agent }: { agent: AgentDefinition }) {
       active = false
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [agent.id])
+  }, [agent.id, sessionId])
 
   // Persist turn metadata (images live in IndexedDB, keyed by turn id)
   useEffect(() => {
     if (!restored.current) return
     saveJson(
-      imageChatKey(agent.id),
+      imageChatKey(agent.id, sessionId),
       turns.map(({ image: _image, ...rest }) => rest),
     )
-  }, [turns, agent.id])
+  }, [turns, agent.id, sessionId])
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" })
@@ -95,6 +103,7 @@ export function ImageChat({ agent }: { agent: AgentDefinition }) {
   async function submit() {
     const prompt = input.trim()
     if (!prompt || busy || !provider) return
+    if (turns.length === 0) onFirstMessage?.(prompt)
     setInput("")
 
     const id = crypto.randomUUID()

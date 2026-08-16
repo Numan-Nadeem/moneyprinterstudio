@@ -42,16 +42,24 @@ function CopyButton({ text }: { text: string }) {
   )
 }
 
-export function AgentChat({ agent }: { agent: AgentDefinition }) {
+export function AgentChat({
+  agent,
+  sessionId,
+  onFirstMessage,
+}: {
+  agent: AgentDefinition
+  sessionId: string
+  onFirstMessage?: (text: string) => void
+}) {
   const { provider, instructions } = useAgentProvider(agent.id)
   const [input, setInput] = useState("")
   const bottomRef = useRef<HTMLDivElement>(null)
 
-  // Persistent Chat instance: lives at module scope, so navigating to
-  // another tab neither clears the conversation nor aborts an in-flight
-  // streaming response — it keeps generating and is fully restored on return.
+  // Persistent Chat instance for THIS session only: lives at module scope, so
+  // navigating away neither clears the conversation nor aborts an in-flight
+  // stream, and each session keeps its own isolated context/memory.
   const { messages, sendMessage, status, stop, error } = useChat({
-    chat: getAgentChat(agent.id),
+    chat: getAgentChat(agent.id, sessionId),
   })
 
   const busy = status === "submitted" || status === "streaming"
@@ -59,8 +67,8 @@ export function AgentChat({ agent }: { agent: AgentDefinition }) {
   // Mirror settled conversations to localStorage (covers stop() and edits;
   // onFinish in the registry covers completed streams).
   useEffect(() => {
-    if (!busy) saveJson(chatKey(agent.id), messages)
-  }, [messages, busy, agent.id])
+    if (!busy) saveJson(chatKey(agent.id, sessionId), messages)
+  }, [messages, busy, agent.id, sessionId])
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" })
@@ -69,6 +77,7 @@ export function AgentChat({ agent }: { agent: AgentDefinition }) {
   function submit() {
     const text = input.trim()
     if (!text || busy || !provider) return
+    if (messages.length === 0) onFirstMessage?.(text)
     sendMessage(
       { text },
       {
