@@ -53,6 +53,7 @@ export function ImageChat({
   const [useContinuity, setUseContinuity] = useState(true)
   const bottomRef = useRef<HTMLDivElement>(null)
   const restored = useRef(false)
+  const hasScrolledInitially = useRef(false)
 
   const busy = turns.some((t) => t.status === "generating")
 
@@ -96,8 +97,14 @@ export function ImageChat({
     )
   }, [turns, agent.id, sessionId])
 
+  // Jump straight to the bottom once restored turns load (no visible scroll
+  // animation from the top); animate smoothly only for turns added afterward.
+  // Skipped until restore() finishes so the initial empty render doesn't
+  // consume the "instant scroll" before the real content arrives.
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" })
+    if (!restored.current) return
+    bottomRef.current?.scrollIntoView({ behavior: hasScrolledInitially.current ? "smooth" : "auto" })
+    hasScrolledInitially.current = true
   }, [turns])
 
   async function submit() {
