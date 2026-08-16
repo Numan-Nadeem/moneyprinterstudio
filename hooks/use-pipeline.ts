@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useRef, useState } from "react"
-import { parseScenes, type ParsedScene } from "@/lib/pipeline/parse-scenes"
+import type { ParsedScene, ExtractedScene } from "@/lib/pipeline/parse-scenes"
 import { useStudioSettings } from "@/hooks/use-studio-settings"
 import { useImageLibrary } from "@/hooks/use-image-library"
 import { getImage } from "@/lib/store/image-db"
@@ -188,33 +188,49 @@ export function usePipeline() {
       }
       setState({ ...INITIAL, storyboard, stage: "extracting" })
       try {
-        const { text: output, warning } = await runAgent(
-          "image-prompt-extractor",
-          storyboard,
-          provider,
-          settings.agentSettings["image-prompt-extractor"]?.instructions ?? "",
-        )
-        if (cancelled.current) return
-        let parsed = parseScenes(output)
-        if (parsed.length === 0) {
-          // The extractor model returned an unparseable shape — fall back to
-          // parsing the pasted storyboard directly, which follows the same
-          // scene/section structure.
-          parsed = parseScenes(storyboard)
+        // Intelligent, format-agnostic extraction: the model reads the
+        // storyboard in whatever structure it happens to use and returns
+        // every scene's image prompt at once (see /api/extract-scenes).
+        const res = await fetch("/api/extract-scenes", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            storyboard,
+            provider: toWireProvider(provider),
+            instructions: settings.agentSettings["image-prompt-extractor"]?.instructions ?? "",
+          }),
+        })
+        const data = (await res.json()) as {
+          scenes?: ExtractedScene[]
+          warning?: string
+          error?: string
         }
-        if (parsed.length === 0) {
+        if (cancelled.current) return
+        if (!res.ok) {
+          setState((s) => ({ ...s, stage: "error", error: data.error || "Scene extraction failed" }))
+          return
+        }
+        const extracted = data.scenes ?? []
+        if (extracted.length === 0) {
           setState((s) => ({
             ...s,
             stage: "error",
-            error: `No scenes were detected. Make sure the storyboard has scene headings like "# SCENE 1 — TITLE" with an "## Image Generation Prompt" section per scene. Extractor output started with: "${output.slice(0, 160).replace(/\s+/g, " ").trim()}..."`,
+            error:
+              "No scenes could be detected in your storyboard. Try adding a little more detail describing each shot's visuals, or switch to a more capable model — the pipeline adapts to any format but needs enough to work with.",
           }))
           return
         }
         setState((s) => ({
           ...s,
           stage: "review",
-          scenes: parsed.map((scene) => ({ ...scene, status: "pending" as const })),
-          error: warning ?? null,
+          scenes: extracted.map((scene, i) => ({
+            index: i + 1,
+            title: scene.title,
+            body: scene.imagePrompt,
+            imagePrompt: scene.imagePrompt,
+            status: "pending" as const,
+          })),
+          error: data.warning ?? null,
         }))
       } catch (error) {
         if (cancelled.current) return
