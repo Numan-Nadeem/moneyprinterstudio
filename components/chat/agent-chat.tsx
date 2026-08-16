@@ -31,12 +31,18 @@ function CopyButton({ text }: { text: string }) {
         setCopied(true)
         setTimeout(() => setCopied(false), 1500)
       }}
-      className="rounded p-1 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 hover:bg-secondary hover:text-foreground focus-visible:opacity-100"
+      className="flex items-center gap-1.5 rounded px-1.5 py-1 font-mono text-[10px] tracking-[0.05em] text-muted-foreground uppercase transition-colors hover:bg-secondary hover:text-foreground"
     >
       {copied ? (
-        <CheckIcon className="size-3.5" weight="bold" aria-hidden />
+        <>
+          <CheckIcon className="size-3.5" weight="bold" aria-hidden />
+          Copied
+        </>
       ) : (
-        <CopyIcon className="size-3.5" weight="bold" aria-hidden />
+        <>
+          <CopyIcon className="size-3.5" weight="bold" aria-hidden />
+          Copy
+        </>
       )}
     </button>
   )
@@ -119,14 +125,14 @@ export function AgentChat({
                   </div>
                 ) : (
                   <div className="w-full">
-                    <div className="flex items-center gap-2">
-                      <p className="font-mono text-[10px] tracking-[0.1em] text-muted-foreground uppercase">
-                        {agent.shortName}
-                      </p>
-                      <CopyButton text={text} />
-                    </div>
+                    <p className="font-mono text-[10px] tracking-[0.1em] text-muted-foreground uppercase">
+                      {agent.shortName}
+                    </p>
                     <div className="prose-sm mt-1.5 max-w-none text-sm leading-relaxed text-foreground">
                       <Streamdown>{text}</Streamdown>
+                    </div>
+                    <div className="mt-1.5 flex items-center">
+                      <CopyButton text={text} />
                     </div>
                   </div>
                 )}
