@@ -19,6 +19,11 @@ import { useAgentProvider } from "@/hooks/use-agent-provider"
 import type { AgentDefinition } from "@/lib/agents/registry"
 import { toWireProvider } from "@/lib/store/types"
 import { cn } from "@/lib/utils"
+import { hasMultipleScenes } from "@/lib/pipeline/scene-utils"
+import { ScenePromptCards } from "@/components/chat/scene-prompt-cards"
+
+/** Agents whose responses are per-scene prompt lists worth splitting into copy cards. */
+const SCENE_CARD_AGENTS = new Set(["image-prompt-extractor", "video-prompt-extractor"])
 
 function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false)
@@ -116,12 +121,19 @@ export function AgentChat({
             </div>
           )}
 
-          {messages.map((message) => {
+          {messages.map((message, mi) => {
             const text = message.parts
               .filter((p): p is Extract<typeof p, { type: "text" }> => p.type === "text")
               .map((p) => p.text)
               .join("")
             const isUser = message.role === "user"
+            const isStreamingThis = busy && mi === messages.length - 1
+            // Once an extractor response has fully streamed in and contains
+            // multiple scenes, render it as individual copy-ready scene cards
+            // instead of one markdown block (while this message is still
+            // streaming, keep Streamdown so partial text shows live).
+            const showSceneCards =
+              !isUser && SCENE_CARD_AGENTS.has(agent.id) && !isStreamingThis && hasMultipleScenes(text)
             return (
               <div key={message.id} className={cn("group flex flex-col gap-1", isUser && "items-end")}>
                 {isUser ? (
@@ -133,9 +145,15 @@ export function AgentChat({
                     <p className="font-mono text-[10px] tracking-[0.1em] text-muted-foreground uppercase">
                       {agent.shortName}
                     </p>
-                    <div className="prose-sm mt-1.5 max-w-none text-sm leading-relaxed text-foreground">
-                      <Streamdown>{text}</Streamdown>
-                    </div>
+                    {showSceneCards ? (
+                      <div className="mt-1.5">
+                        <ScenePromptCards text={text} />
+                      </div>
+                    ) : (
+                      <div className="prose-sm mt-1.5 max-w-none text-sm leading-relaxed text-foreground">
+                        <Streamdown>{text}</Streamdown>
+                      </div>
+                    )}
                     <div className="mt-1.5 flex items-center">
                       <CopyButton text={text} />
                     </div>

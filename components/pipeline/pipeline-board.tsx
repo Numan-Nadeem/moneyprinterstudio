@@ -16,6 +16,8 @@ import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { usePipeline, type PipelineScene } from "@/hooks/use-pipeline"
 import { useStudioSettings } from "@/hooks/use-studio-settings"
+import { stripMarkdown, splitIntoScenes } from "@/lib/pipeline/scene-utils"
+import { ScenePromptCard } from "@/components/chat/scene-prompt-cards"
 
 function downloadText(content: string, filename: string) {
   const blob = new Blob([content], { type: "text/plain;charset=utf-8" })
@@ -264,67 +266,6 @@ function SceneCard({
   )
 }
 
-/**
- * Strips common markdown symbols from plain-text output so pipeline cards
- * don't display raw `##`, `**`, `---`, `*` etc.
- */
-function stripMarkdown(text: string): string {
-  return text
-    // Remove heading markers (# ## ###)
-    .replace(/^#{1,6}\s+/gm, "")
-    // Remove bold/italic (**text**, *text*, __text__, _text_)
-    .replace(/(\*{1,3}|_{1,3})(.*?)\1/g, "$2")
-    // Remove horizontal rules
-    .replace(/^[-*_]{3,}\s*$/gm, "")
-    // Remove blockquote markers
-    .replace(/^>\s?/gm, "")
-    // Collapse 3+ blank lines into 2
-    .replace(/\n{3,}/g, "\n\n")
-    .trim()
-}
-
-/**
- * Splits a multi-scene text block on scene headings so each scene gets its
- * own card with a dedicated copy button.
- * Handles any heading format: "Scene 1", "## Scene 1 — HOOK", "SCENE 1:", etc.
- * Falls back to a single block when no scene structure is detected.
- */
-function splitIntoScenes(text: string): { label: string; body: string }[] {
-  // Split the text on every line that starts a new scene heading.
-  // We use a simple line-by-line approach instead of regex lookahead so it
-  // works reliably across any LLM output format.
-  const lines = text.split("\n")
-  // Matches any scene heading regardless of emoji prefix, markdown markers, or
-  // separator style: "🎬 SCENE 1 HOOK", "# Scene 2 — Title", "Scene 3:", etc.
-  const sceneHeadingRe = /^[\p{Emoji}\p{Emoji_Component}]*\s*(?:#{1,6}\s*)?(?:\*\*)?\s*(?:scene|szene|escena|scène)\s+\d+/iu
-
-  const chunks: { label: string; lines: string[] }[] = []
-
-  for (const line of lines) {
-    // Strip leading emoji, markdown heading markers, and bold markers for display
-    const clean = line.replace(/^[\p{Emoji}\p{Emoji_Component}]+\s*/u, "").replace(/^#{1,6}\s*/, "").replace(/^\*\*|\*\*$/g, "").trim()
-    if (sceneHeadingRe.test(line.trim())) {
-      // Remove trailing dash-style separators like " — HOOK" → keep "Scene 1 HOOK"
-      // but preserve subtitle words after space (e.g. "Scene 1 HOOK" stays intact)
-      const label = clean.replace(/\s*[—–]{1,}\s*/g, " — ").trim()
-      chunks.push({ label, lines: [line] })
-    } else if (chunks.length > 0) {
-      chunks[chunks.length - 1].lines.push(line)
-    }
-    // lines before the first scene heading are silently dropped
-  }
-
-  if (chunks.length <= 1) {
-    // No scene structure detected — return as a single block
-    return [{ label: "Output", body: stripMarkdown(text) }]
-  }
-
-  return chunks.map((c) => ({
-    label: c.label,
-    body: stripMarkdown(c.lines.join("\n")),
-  }))
-}
-
 function PerSceneOutputBlock({
   title,
   content,
@@ -379,33 +320,6 @@ function PerSceneOutputBlock({
         </p>
       )}
     </section>
-  )
-}
-
-function ScenePromptCard({ label, body }: { label: string; body: string }) {
-  const [copied, setCopied] = useState(false)
-  return (
-    <div className="flex flex-col gap-2 rounded-lg border border-border bg-card">
-      <div className="flex items-center justify-between gap-3 border-b border-border px-4 py-2.5">
-        <span className="truncate font-mono text-[10px] tracking-[0.08em] text-muted-foreground uppercase">
-          {label}
-        </span>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-7 shrink-0 gap-1.5 px-2.5 text-xs"
-          onClick={async () => {
-            await navigator.clipboard.writeText(body)
-            setCopied(true)
-            setTimeout(() => setCopied(false), 1500)
-          }}
-        >
-          <CopyIcon className="size-3" weight="bold" aria-hidden />
-          {copied ? "Copied" : "Copy"}
-        </Button>
-      </div>
-      <pre className="px-4 pb-4 font-mono text-xs leading-relaxed whitespace-pre-wrap">{body}</pre>
-    </div>
   )
 }
 
