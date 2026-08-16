@@ -62,7 +62,20 @@ export async function POST(req: Request) {
         system,
         prompt: body.input,
         maxRetries: 1,
+        // Multi-scene extractions (video prompts, metadata) can easily run
+        // to several thousand tokens. Without an explicit cap, providers
+        // fall back to a low default and silently truncate mid-response —
+        // producing scenes with headers but missing content.
+        maxOutputTokens: 16000,
       })
+      if (result.finishReason === "length") {
+        console.error(`[agent-run] ${body.agentId} output was truncated at the token limit`)
+        return Response.json({
+          text: result.text,
+          warning:
+            "The response was cut off before finishing — some scenes near the end may be missing content. Try running the pipeline on fewer scenes at a time, or use a model with a larger output limit.",
+        })
+      }
       return Response.json({ text: result.text })
     } catch (error) {
       lastError = error
