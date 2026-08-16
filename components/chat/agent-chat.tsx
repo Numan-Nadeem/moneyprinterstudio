@@ -60,6 +60,7 @@ export function AgentChat({
   const { provider, instructions } = useAgentProvider(agent.id)
   const [input, setInput] = useState("")
   const bottomRef = useRef<HTMLDivElement>(null)
+  const hasScrolledInitially = useRef(false)
 
   // Persistent Chat instance for THIS session only: lives at module scope, so
   // navigating away neither clears the conversation nor aborts an in-flight
@@ -76,8 +77,12 @@ export function AgentChat({
     if (!busy) saveJson(chatKey(agent.id, sessionId), messages)
   }, [messages, busy, agent.id, sessionId])
 
+  // Jump straight to the bottom when a session first loads its messages
+  // (no visible scroll animation from the top); animate smoothly only for
+  // messages that arrive afterward, e.g. while streaming a response.
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" })
+    bottomRef.current?.scrollIntoView({ behavior: hasScrolledInitially.current ? "smooth" : "auto" })
+    hasScrolledInitially.current = true
   }, [messages])
 
   function submit() {
