@@ -2,37 +2,47 @@
 
 import { Chat } from "@ai-sdk/react"
 import { DefaultChatTransport, type UIMessage } from "ai"
-import { chatKey, loadJson, saveJson } from "@/lib/store/chat-store"
+import { chatKey, loadJson, removeJson, saveJson } from "@/lib/store/chat-store"
 
 /**
- * Module-scope registry of Chat instances, one per agent.
+ * Module-scope registry of Chat instances, keyed per (agent, session).
  *
- * Because instances live outside React, an in-flight streaming response
- * keeps going when the user navigates to another tab, and the full
- * conversation is still there (with the completed reply) when they return.
- * Messages are also mirrored to localStorage so chats survive full reloads.
+ * Each session is a completely separate conversation with its own message
+ * history, so a streaming request only ever carries the CURRENT session's
+ * context — no other chat's memory leaks in. Instances live outside React so
+ * an in-flight stream keeps going across tab navigation and is restored on
+ * return. Messages are mirrored to localStorage to survive full reloads.
  */
 const registry = new Map<string, Chat<UIMessage>>()
 
-export function getAgentChat(agentId: string): Chat<UIMessage> {
-  const existing = registry.get(agentId)
+const registryKey = (agentId: string, sessionId: string) => `${agentId}::${sessionId}`
+
+export function getAgentChat(agentId: string, sessionId: string): Chat<UIMessage> {
+  const key = registryKey(agentId, sessionId)
+  const existing = registry.get(key)
   if (existing) return existing
 
   const chat = new Chat<UIMessage>({
-    id: `agent-${agentId}`,
-    messages: loadJson<UIMessage[]>(chatKey(agentId)) ?? [],
+    id: `agent-${agentId}-${sessionId}`,
+    messages: loadJson<UIMessage[]>(chatKey(agentId, sessionId)) ?? [],
     transport: new DefaultChatTransport({ api: "/api/chat" }),
     onFinish: () => {
-      saveJson(chatKey(agentId), chat.messages)
+      saveJson(chatKey(agentId, sessionId), chat.messages)
     },
   })
-  registry.set(agentId, chat)
+  registry.set(key, chat)
   return chat
 }
 
-/** Clears an agent's conversation everywhere (memory + storage). */
-export function clearAgentChat(agentId: string) {
-  const chat = registry.get(agentId)
+/** Clears one session's conversation everywhere (memory + storage). */
+export function clearAgentChat(agentId: string, sessionId: string) {
+  const chat = registry.get(registryKey(agentId, sessionId))
   if (chat) chat.messages = []
-  saveJson(chatKey(agentId), [])
+  saveJson(chatKey(agentId, sessionId), [])
+}
+
+/** Removes a session entirely: drops its instance and its stored messages. */
+export function deleteAgentChat(agentId: string, sessionId: string) {
+  registry.delete(registryKey(agentId, sessionId))
+  removeJson(chatKey(agentId, sessionId))
 }

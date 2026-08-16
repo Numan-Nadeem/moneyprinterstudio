@@ -34,6 +34,7 @@ export function removeJson(key: string): void {
   }
 }
 
-export const chatKey = (agentId: string) => `mps:chat:${agentId}:v1`
-export const imageChatKey = (agentId: string) => `mps:image-chat:${agentId}:v1`
+export const chatKey = (agentId: string, sessionId: string) => `mps:chat:${agentId}:${sessionId}:v1`
+export const imageChatKey = (agentId: string, sessionId: string) =>
+  `mps:image-chat:${agentId}:${sessionId}:v1`
 export const PIPELINE_KEY = "mps:pipeline:v1"
