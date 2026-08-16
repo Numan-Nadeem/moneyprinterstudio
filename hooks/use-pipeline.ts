@@ -32,6 +32,10 @@ export interface PipelineScene extends ParsedScene {
   /** id of the generated image in the IndexedDB gallery (for rehydration) */
   imageId?: string
   error?: string
+  /** number of automatic retries already attempted for this scene */
+  retryCount?: number
+  /** seconds remaining before the next automatic retry (drives the countdown UI) */
+  retryCountdown?: number
 }
 
 export interface PipelineState {
@@ -116,6 +120,8 @@ export function usePipeline() {
   const [state, _setState] = useState<PipelineState>(INITIAL)
   const stateRef = useRef<PipelineState>(INITIAL)
   const cancelled = useRef(false)
+  /** active retry countdown interval, cleared on cancel/reset */
+  const retryTimer = useRef<ReturnType<typeof setInterval> | null>(null)
 
   /** Keeps a synchronous mirror of state for async orchestration loops,
    * and writes through to localStorage (scenes persisted without data URLs). */
@@ -174,6 +180,10 @@ export function usePipeline() {
 
   const reset = useCallback(() => {
     cancelled.current = true
+    if (retryTimer.current) {
+      clearInterval(retryTimer.current)
+      retryTimer.current = null
+    }
     setState(INITIAL)
   }, [setState])
 
@@ -285,6 +295,45 @@ export function usePipeline() {
     [settings, add],
   )
 
+  /**
+   * Runs a visible countdown before an automatic retry. Resolves true if the
+   * wait completed, or false if the pipeline was cancelled/reset mid-wait.
+   */
+  const countdownToRetry = useCallback(
+    (index: number, seconds: number) =>
+      new Promise<boolean>((resolve) => {
+        let remaining = seconds
+        setState((s) => ({
+          ...s,
+          scenes: s.scenes.map((sc, j) => (j === index ? { ...sc, retryCountdown: remaining } : sc)),
+        }))
+        retryTimer.current = setInterval(() => {
+          if (cancelled.current) {
+            if (retryTimer.current) clearInterval(retryTimer.current)
+            retryTimer.current = null
+            resolve(false)
+            return
+          }
+          remaining -= 1
+          if (remaining <= 0) {
+            if (retryTimer.current) clearInterval(retryTimer.current)
+            retryTimer.current = null
+            setState((s) => ({
+              ...s,
+              scenes: s.scenes.map((sc, j) => (j === index ? { ...sc, retryCountdown: undefined } : sc)),
+            }))
+            resolve(true)
+            return
+          }
+          setState((s) => ({
+            ...s,
+            scenes: s.scenes.map((sc, j) => (j === index ? { ...sc, retryCountdown: remaining } : sc)),
+          }))
+        }, 1000)
+      }),
+    [setState],
+  )
+
   /** Runs image generation from scene `from`, pausing per confirmation mode */
   const runImages = useCallback(
     async (from: number) => {
@@ -304,11 +353,45 @@ export function usePipeline() {
           const result = await generateScene(i, scenes)
           if (cancelled.current || !result) return
           scenes = scenes.map((sc, j) =>
-            j === i ? { ...sc, status: "done" as const, image: result.image, imageId: result.imageId } : sc,
+            j === i
+              ? {
+                  ...sc,
+                  status: "done" as const,
+                  image: result.image,
+                  imageId: result.imageId,
+                  error: undefined,
+                  retryCount: 0,
+                  retryCountdown: undefined,
+                }
+              : sc,
           )
           setState((s) => ({ ...s, scenes }))
         } catch (error) {
           const message = error instanceof Error ? error.message : "Image generation failed"
+          const attempts = scenes[i].retryCount ?? 0
+
+          // Auto-retry after the configured delay, up to the configured cap.
+          if (settings.autoRetry && attempts < settings.maxRetries) {
+            scenes = scenes.map((sc, j) =>
+              j === i
+                ? { ...sc, status: "error" as const, error: message, retryCount: attempts + 1 }
+                : sc,
+            )
+            setState((s) => ({ ...s, scenes, stage: "generating", cursor: i }))
+
+            const completed = await countdownToRetry(i, Math.max(1, settings.retryDelaySeconds))
+            if (cancelled.current || !completed) return
+
+            // Re-arm the scene and retry the same index.
+            scenes = scenes.map((sc, j) =>
+              j === i ? { ...sc, status: "generating" as const, error: undefined } : sc,
+            )
+            setState((s) => ({ ...s, scenes }))
+            i -= 1 // reprocess this scene on the next loop iteration
+            continue
+          }
+
+          // Auto-retry disabled or exhausted — stop and wait for the user.
           scenes = scenes.map((sc, j) => (j === i ? { ...sc, status: "error" as const, error: message } : sc))
           setState((s) => ({ ...s, scenes, stage: "awaiting-confirmation", cursor: i }))
           return
@@ -325,7 +408,14 @@ export function usePipeline() {
         }
       }
     },
-    [generateScene, settings.autoContinue],
+    [
+      generateScene,
+      settings.autoContinue,
+      settings.autoRetry,
+      settings.maxRetries,
+      settings.retryDelaySeconds,
+      countdownToRetry,
+    ],
   )
 
   /** Stage 3 + 4: video prompt extraction, then post-processing */
@@ -375,12 +465,16 @@ export function usePipeline() {
     }
   }, [settings])
 
-  /** Retry the scene the pipeline stopped on */
+  /** Retry the scene the pipeline stopped on (manual retry resets the counter) */
   const retryScene = useCallback(
     (index: number) => {
       setState((s) => ({
         ...s,
-        scenes: s.scenes.map((sc, j) => (j === index ? { ...sc, status: "pending", error: undefined } : sc)),
+        scenes: s.scenes.map((sc, j) =>
+          j === index
+            ? { ...sc, status: "pending", error: undefined, retryCount: 0, retryCountdown: undefined }
+            : sc,
+        ),
       }))
       void runImages(index)
     },
