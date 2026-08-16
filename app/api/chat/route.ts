@@ -91,6 +91,10 @@ async function streamWithFallback(
       model: candidates[i],
       instructions: system,
       messages: modelMessages,
+      // Multi-scene extractions can run to several thousand tokens; without
+      // an explicit cap, providers fall back to a low default and silently
+      // cut the response short partway through the storyboard.
+      maxOutputTokens: 16000,
       onError: ({ error }) => {
         console.error(`[chat] stream error (format ${i + 1}/${candidates.length}):`, error)
       },

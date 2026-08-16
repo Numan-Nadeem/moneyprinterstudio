@@ -94,7 +94,7 @@ async function runAgent(
   input: string,
   provider: ProviderConfig,
   instructions: string,
-): Promise<string> {
+): Promise<{ text: string; warning?: string }> {
   const res = await fetch("/api/agent-run", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -105,9 +105,9 @@ async function runAgent(
       instructions,
     }),
   })
-  const data = (await res.json()) as { text?: string; error?: string }
+  const data = (await res.json()) as { text?: string; warning?: string; error?: string }
   if (!res.ok || !data.text) throw new Error(data.error || `${agentId} run failed`)
-  return data.text
+  return { text: data.text, warning: data.warning }
 }
 
 export function usePipeline() {
@@ -188,7 +188,7 @@ export function usePipeline() {
       }
       setState({ ...INITIAL, storyboard, stage: "extracting" })
       try {
-        const output = await runAgent(
+        const { text: output, warning } = await runAgent(
           "image-prompt-extractor",
           storyboard,
           provider,
@@ -214,6 +214,7 @@ export function usePipeline() {
           ...s,
           stage: "review",
           scenes: parsed.map((scene) => ({ ...scene, status: "pending" as const })),
+          error: warning ?? null,
         }))
       } catch (error) {
         if (cancelled.current) return
@@ -324,23 +325,33 @@ export function usePipeline() {
     try {
       const storyboard = stateRef.current.storyboard
 
-      const videoPrompts = await runAgent(
+      const videoResult = await runAgent(
         "video-prompt-extractor",
         storyboard,
         videoProvider,
         settings.agentSettings["video-prompt-extractor"]?.instructions ?? "",
       )
       if (cancelled.current) return
-      setState((s) => ({ ...s, videoPrompts, stage: "post-processing" }))
+      setState((s) => ({
+        ...s,
+        videoPrompts: videoResult.text,
+        stage: "post-processing",
+        error: videoResult.warning ?? null,
+      }))
 
-      const postProcessing = await runAgent(
+      const postResult = await runAgent(
         "post-processing",
         storyboard,
         postProvider,
         settings.agentSettings["post-processing"]?.instructions ?? "",
       )
       if (cancelled.current) return
-      setState((s) => ({ ...s, postProcessing, stage: "complete" }))
+      setState((s) => ({
+        ...s,
+        postProcessing: postResult.text,
+        stage: "complete",
+        error: postResult.warning ?? s.error ?? null,
+      }))
     } catch (error) {
       if (cancelled.current) return
       const message = error instanceof Error ? error.message : "Video stage failed"
