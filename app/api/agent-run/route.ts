@@ -15,6 +15,8 @@ interface AgentRunBody {
   input: string
   provider: WireProviderConfig
   instructions?: string
+  /** when true, append the pipeline-mode directive that disables interactive gating */
+  pipeline?: boolean
 }
 
 /**
@@ -45,7 +47,7 @@ export async function POST(req: Request) {
 
   let system: string
   try {
-    system = await buildSystemPrompt(agent.id, body.instructions)
+    system = await buildSystemPrompt(agent.id, body.instructions, body.pipeline === true)
   } catch {
     return Response.json({ error: `Master prompt not found for ${agent.id}` }, { status: 500 })
   }
@@ -55,12 +57,29 @@ export async function POST(req: Request) {
   const candidates = resolveLanguageModelCandidates(body.provider)
   let lastError: unknown = null
 
+  // Several master prompts are written as interactive chats whose STEP 1 is an
+  // absolute rule to first reply "Please paste your complete storyboard." and
+  // wait. In single-shot pipeline mode the model otherwise treats the incoming
+  // storyboard as the opening turn and returns that greeting instead of doing
+  // the work. Pre-seeding the scripted greeting as a prior assistant turn makes
+  // STEP 1 already-satisfied, so the model proceeds straight to extraction on
+  // the storyboard turn — working WITH each prompt's protocol, not against it.
+  const messages = body.pipeline
+    ? ([
+        { role: "user", content: "I'm ready to begin." },
+        { role: "assistant", content: "Please paste your complete storyboard." },
+        { role: "user", content: body.input },
+      ] as const)
+    : undefined
+
   for (const model of candidates) {
     try {
       const result = await generateText({
         model,
         system,
-        prompt: body.input,
+        // Pipeline runs use a pre-seeded message history (see above); everything
+        // else uses a plain single-turn prompt.
+        ...(messages ? { messages: messages.map((m) => ({ ...m })) } : { prompt: body.input }),
         maxRetries: 1,
         // Multi-scene extractions (video prompts, metadata) can easily run
         // to several thousand tokens. Without an explicit cap, providers

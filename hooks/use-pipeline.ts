@@ -107,6 +107,7 @@ async function runAgent(
       input,
       provider: toWireProvider(provider),
       instructions,
+      pipeline: true,
     }),
   })
   const data = (await res.json()) as { text?: string; warning?: string; error?: string }
