@@ -43,6 +43,37 @@ You are running as an automated single-turn step in a production pipeline, NOT a
 - There will be no further turns, so never defer work to a later message.`
 
 /**
+ * Removes interactive "greet first / wait for the storyboard" gating from a
+ * master prompt so it can run as a single automated turn.
+ *
+ * Some master prompts open with an absolute rule like:
+ *   ## STEP 1
+ *   When this conversation starts, ask ONLY:
+ *   **"Please paste your complete storyboard."**
+ * which is strong enough that the model re-issues the greeting even when the
+ * storyboard is already supplied and a "pipeline mode" directive is appended.
+ * The only reliable fix is to delete the instruction itself before the model
+ * ever sees it. Operates on the in-memory copy only — the master prompt files
+ * on disk (the source of truth) are never modified.
+ */
+function stripInteractiveGating(prompt: string): string {
+  return (
+    prompt
+      // Drop a leading "## STEP 1 ... " greeting block up to its trailing rule.
+      .replace(/^#{1,3}\s*STEP\s*1\b[\s\S]*?(?:\n-{3,}\s*\n|\n-{3,}\s*$)/im, (block) =>
+        /paste|ask only|conversation starts/i.test(block) ? "" : block,
+      )
+      // Neutralize any remaining "ask the user to paste the storyboard" lines.
+      .replace(/^.*please paste your complete storyboard.*$/gim, "")
+      // Neutralize "wait for me to type Continue" style turn-gating.
+      .replace(/^.*\btype\s+continue\b.*$/gim, "")
+      .replace(/^.*\bwait for (?:me|the user) to (?:type|say|paste).*$/gim, "")
+      .replace(/\n{3,}/g, "\n\n")
+      .trim()
+  )
+}
+
+/**
  * Assembles the full system prompt for an agent:
  * master prompt (verbatim) + optional pipeline-mode directive + optional
  * global user instructions appendix.
@@ -55,7 +86,7 @@ export async function buildSystemPrompt(
   const masterPrompt = await loadMasterPrompt(agentId)
   let prompt = masterPrompt
   if (pipelineMode) {
-    prompt = `${prompt}\n\n---\n\n${PIPELINE_MODE_DIRECTIVE}`
+    prompt = `${stripInteractiveGating(prompt)}\n\n---\n\n${PIPELINE_MODE_DIRECTIVE}`
   }
   const instructions = userInstructions?.trim()
   if (!instructions) return prompt
