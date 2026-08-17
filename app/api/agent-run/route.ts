@@ -15,6 +15,8 @@ interface AgentRunBody {
   input: string
   provider: WireProviderConfig
   instructions?: string
+  /** when true, append the pipeline-mode directive that disables interactive gating */
+  pipeline?: boolean
 }
 
 /**
@@ -45,7 +47,7 @@ export async function POST(req: Request) {
 
   let system: string
   try {
-    system = await buildSystemPrompt(agent.id, body.instructions)
+    system = await buildSystemPrompt(agent.id, body.instructions, body.pipeline === true)
   } catch {
     return Response.json({ error: `Master prompt not found for ${agent.id}` }, { status: 500 })
   }
